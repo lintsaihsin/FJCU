@@ -1,0 +1,14 @@
+module majority3 (X, Y, Z, F); 
+	input X, Y, Z; 
+	output F; 
+	
+	wire S1, S2, S3;
+	
+	and(S1, X, Y);  
+	and(S2, X, Z);  
+	and(S3, Y, Z); 
+	
+	or(F, S1, S2, S3);
+	
+endmodule
+	

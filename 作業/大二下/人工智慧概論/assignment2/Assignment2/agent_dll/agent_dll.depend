@@ -1,0 +1,8 @@
+# depslib dependency file v1.0
+1617550065 source:d:\assignment2\assignment2\agent_dll\agent_dll.cpp
+	"agent_dll.h"
+	<bits/stdc++.h>
+
+1617549932 d:\assignment2\assignment2\agent_dll\agent_dll.h
+	<windows.h>
+

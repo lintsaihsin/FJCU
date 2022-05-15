@@ -1,0 +1,4 @@
+﻿  Assembling main.asm...
+main.asm(58): error A2008: syntax error : -
+main.asm(236): warning A4006: too many arguments in macro call
+C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Microsoft\VC\v160\BuildCustomizations\masm.targets(70,5): error MSB3721: 命令 "ml.exe /c /nologo /Zi /Fo"Debug\main.obj" /Fl"HW02.lst" /I "C:\Irvine" /W3 /errorReport:prompt  /Tamain.asm" 已結束，代碼為 1。

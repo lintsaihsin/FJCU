@@ -1,0 +1,4444 @@
+Microsoft (R) Macro Assembler Version 14.27.29111.0	    01/03/21 18:43:41
+main.asm						     Page 1 - 1
+
+
+				INCLUDE Irvine32.inc
+			      C ; Include file for Irvine32.lib             (Irvine32.inc)
+			      C 
+			      C ;OPTION CASEMAP:NONE		; optional: make identifiers case-sensitive
+			      C 
+			      C INCLUDE SmallWin.inc		; MS-Windows prototypes, structures, and constants
+			      C .NOLIST
+			      C .LIST
+			      C 
+			      C INCLUDE VirtualKeys.inc
+			      C ; VirtualKeys.inc
+			      C .NOLIST
+			      C .LIST
+			      C 
+			      C 
+			      C .NOLIST
+			      C .LIST
+			      C 
+
+				;macros
+				; 定位X,Y座標--------------
+				mGotoxy MACRO X:REQ, Y:REQ                              
+				    PUSH    EDX
+				    MOV DH, Y
+				    MOV DL, X
+				    CALL    Gotoxy
+				    POP EDX
+				ENDM
+				;--------------------------
+				; 印出值----------------------------------------
+				mWrite MACRO text:REQ                                   
+				    LOCAL string
+				    .data
+				        string BYTE text, 0
+				    .code
+				        mov al , 15 + ( 0 * 16 );改變顏色
+				        call SetTextColor
+
+				        PUSH    EDX
+				        MOV EDX, OFFSET string
+				        CALL    WriteString
+				        POP EDX
+				ENDM
+				;-----------------------------------------------
+				;讀取字串----------------
+				mReadString MACRO var:REQ                               
+				    PUSH    ECX
+				    PUSH    EDX
+				    MOV EDX, OFFSET var
+				    MOV ECX, SIZEOF var
+				    CALL    ReadString
+				    POP EDX
+				    POP ECX
+				ENDM
+				;------------------------
+				;印出字串--------------------------
+				mWriteString MACRO buffer:REQ                           
+				     mov al , 15 + ( 0 * 16 );改變顏色
+				    call SetTextColor
+
+				    PUSH    EDX
+				    MOV EDX, OFFSET buffer
+				    CALL    WriteString
+				    POP EDX
+				ENDM
+				;----------------------------------
+				; Game "Window" Setup:
+ = 00000073			    maxX    EQU 115; 設定遊戲範圍
+ = 0000001C			    maxY    EQU 28
+ = "-----------------------	    wallHor EQU "--------------------------------------------------------------------------------------------------------------------"
+   ------------------------
+   ------------------------
+   ------------------------
+   ---------------------"
+ = 0000007C			    wallVert    EQU '|'
+ = 000000FF			    maxSize EQU 255
+				;-----------------------------------
+
+				; Structs:
+				;x, y 座標的結構
+ 00000002			AXIS STRUCT                                             
+ 00000000  00			    x BYTE 0                                            
+ 00000001  00			    y BYTE 0
+				AXIS ENDS
+				;-------------
+
+				;設定上下左右按鍵---------------
+ = 00000025			    VK_LEFT     EQU 000000025h                          
+ = 00000026			    VK_UP       EQU 000000026h
+ = 00000027			    VK_RIGHT    EQU 000000027h
+ = 00000028			    VK_DOWN     EQU 000000028h
+				;-----------------------------
+
+				; Prototypes:
+				GetKeyState PROTO, nVirtKey:DWORD
+
+ 00000000			.data
+ 00000000 00000000		    score dword 0
+ 00000004 00000000		    ranbon dword 0
+ 00000008 00 00			    foodPoint   AXIS    <0,0>; 食物座標
+ 0000000A  000000FF [		    SnakeBody   AXIS    maxSize DUP(<0,0>) ; 蛇座標
+	    00 00
+	   ]
+
+ 00000208 0000003C		    speed   DWORD   60 ;速度
+
+ 0000020C 23			    snake       BYTE    '#'
+ 0000020D 00			    choice  BYTE    0
+ 0000020E  0000000E [		    playerName  BYTE    13 + 1 DUP (?)
+	    00
+	   ]
+
+				;蛇出生座標----------------
+ 0000021C 28			    currentX    BYTE    40                          
+ 0000021D 0A			    currentY    BYTE    10
+				;-------------------------
+				;食物形狀---------------------
+ 0000021E 41			    foodChar0  BYTE   'A'                        
+ 0000021F 42			    foodChar1  BYTE   'B'
+ 00000220 43			    foodChar2  BYTE   'C'
+ 00000221 44			    foodChar3  BYTE   'D'
+ 00000222 45			    foodChar4  BYTE   'E'
+ 00000223 05			    foodnum    BYTE   5
+ 00000224 00000005		    foodrandomnum    DWORD  5
+				;----------------------------
+				;頭尾座標的index--------------
+ 00000228 03			    headIndex       BYTE    3   
+ 00000229 00			    tailIndex       BYTE    0
+				;-----------------------------
+				;初始化移動控制----------------
+ 0000022A 00			    LEFT            BYTE    0                       
+ 0000022B 01			    RIGHT           BYTE    1                       
+ 0000022C 00			    UP              BYTE    0
+ 0000022D 00			    DOWN            BYTE    0
+				;-----------------------------
+
+ 0000022E 79 6F 75 20 65	    wrong byte "you enter the wrong message, try again !",0
+	   6E 74 65 72 20
+	   74 68 65 20 77
+	   72 6F 6E 67 20
+	   6D 65 73 73 61
+	   67 65 2C 20 74
+	   72 79 20 61 67
+	   61 69 6E 20 21
+	   00
+ 00000257 4D 61 79 62 65	    again byte "Maybe you can try again later !",0
+	   20 79 6F 75 20
+	   63 61 6E 20 74
+	   72 79 20 61 67
+	   61 69 6E 20 6C
+	   61 74 65 72 20
+	   21 00
+ 00000277 4D 61 79 62 65	    good  byte "Maybe you can get higher score, haha !",0
+	   20 79 6F 75 20
+	   63 61 6E 20 67
+	   65 74 20 68 69
+	   67 68 65 72 20
+	   73 63 6F 72 65
+	   2C 20 68 61 68
+	   61 20 21 00
+ 0000029E 43 6F 6E 67 72	    excellent  byte "Congraduation! You got high scores !",0
+	   61 64 75 61 74
+	   69 6F 6E 21 20
+	   59 6F 75 20 67
+	   6F 74 20 68 69
+	   67 68 20 73 63
+	   6F 72 65 73 20
+	   21 00
+
+ 00000000			.code
+ 00000000			main PROC
+ 00000000  E8 000014EC		   call startgame
+				   exit
+ 0000000C			main ENDP  
+
+				;畫出牆---------------------
+ 0000000C			PrintWalls PROC        
+				    mGotoxy 0, 1     
+ 0000000C  52		     1	    PUSH    EDX
+ 0000000D  B6 01	     1	    MOV DH, 1
+ 0000000F  B2 00	     1	    MOV DL, 0
+ 00000011  E8 00000000 E     1	    CALL    Gotoxy
+ 00000016  5A		     1	    POP EDX
+				    mWrite  wallHor
+ 000002C3		     1	    .data
+ 000002C3 2D 2D 2D 2D 2D     1	        ??0000 BYTE wallHor, 0
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 00
+ 00000017		     1	    .code
+ 00000017  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000019  E8 00000000 E     1	        call SetTextColor
+ 0000001E  52		     1	        PUSH    EDX
+ 0000001F  BA 000002C3 R     1	        MOV EDX, OFFSET ??0000
+ 00000024  E8 00000000 E     1	        CALL    WriteString
+ 00000029  5A		     1	        POP EDX
+				    mGotoxy 0, maxY                                     
+ 0000002A  52		     1	    PUSH    EDX
+ 0000002B  B6 1C	     1	    MOV DH, maxY
+ 0000002D  B2 00	     1	    MOV DL, 0
+ 0000002F  E8 00000000 E     1	    CALL    Gotoxy
+ 00000034  5A		     1	    POP EDX
+				    mWrite  wallHor    
+ 00000338		     1	    .data
+ 00000338 2D 2D 2D 2D 2D     1	        ??0001 BYTE wallHor, 0
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 00
+ 00000035		     1	    .code
+ 00000035  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000037  E8 00000000 E     1	        call SetTextColor
+ 0000003C  52		     1	        PUSH    EDX
+ 0000003D  BA 00000338 R     1	        MOV EDX, OFFSET ??0001
+ 00000042  E8 00000000 E     1	        CALL    WriteString
+ 00000047  5A		     1	        POP EDX
+ 00000048  B1 1B		    mov cl, maxY - 1                                    
+				    
+ 0000004A			X00:
+ 0000004A  80 F9 01		    cmp cl, 1                                           
+ 0000004D  74 40		    je  X01                                             
+				        mGotoxy 0, CL                                   
+ 0000004F  52		     1	    PUSH    EDX
+ 00000050  8A F1	     1	    MOV DH, CL
+ 00000052  B2 00	     1	    MOV DL, 0
+ 00000054  E8 00000000 E     1	    CALL    Gotoxy
+ 00000059  5A		     1	    POP EDX
+				        mWrite  wallVert                                
+ 000003AD		     1	    .data
+ 000003AD 7C 00		     1	        ??0002 BYTE wallVert, 0
+ 0000005A		     1	    .code
+ 0000005A  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000005C  E8 00000000 E     1	        call SetTextColor
+ 00000061  52		     1	        PUSH    EDX
+ 00000062  BA 000003AD R     1	        MOV EDX, OFFSET ??0002
+ 00000067  E8 00000000 E     1	        CALL    WriteString
+ 0000006C  5A		     1	        POP EDX
+				        mGotoxy maxX, CL
+ 0000006D  52		     1	    PUSH    EDX
+ 0000006E  8A F1	     1	    MOV DH, CL
+ 00000070  B2 73	     1	    MOV DL, maxX
+ 00000072  E8 00000000 E     1	    CALL    Gotoxy
+ 00000077  5A		     1	    POP EDX
+				        mWrite  wallVert                                
+ 000003AF		     1	    .data
+ 000003AF 7C 00		     1	        ??0003 BYTE wallVert, 0
+ 00000078		     1	    .code
+ 00000078  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000007A  E8 00000000 E     1	        call SetTextColor
+ 0000007F  52		     1	        PUSH    EDX
+ 00000080  BA 000003AF R     1	        MOV EDX, OFFSET ??0003
+ 00000085  E8 00000000 E     1	        CALL    WriteString
+ 0000008A  5A		     1	        POP EDX
+ 0000008B  FE C9		        dec CL                                          
+ 0000008D  EB BB		    jmp X00                                             
+
+ 0000008F			X01:
+ 0000008F  C3			    ret
+ 00000090			PrintWalls ENDP
+				;---------------------------
+
+				;初始畫面----------------
+ 00000090			DrawFirstScreen PROC
+ 00000090  E8 00000000 E	    CALL    ClrScr
+ 00000095  E8 FFFFFF72		    CALL    PrintWalls
+				        
+				    mGotoxy 28, 3                                       
+ 0000009A  52		     1	    PUSH    EDX
+ 0000009B  B6 03	     1	    MOV DH, 3
+ 0000009D  B2 1C	     1	    MOV DL, 28
+ 0000009F  E8 00000000 E     1	    CALL    Gotoxy
+ 000000A4  5A		     1	    POP EDX
+				    mWrite  "            _____          _____   ____   __    __ ______"
+ 000003B1		     1	    .data
+ 000003B1 20 20 20 20 20     1	        ??0004 BYTE "            _____          _____   ____   __    __ ______", 0
+	   20 20 20 20 20
+	   20 20 5F 5F 5F
+	   5F 5F 20 20 20
+	   20 20 20 20 20
+	   20 20 5F 5F 5F
+	   5F 5F 20 20 20
+	   5F 5F 5F 5F 20
+	   20 20 5F 5F 20
+	   20 20 20 5F 5F
+	   20 5F 5F 5F 5F
+	   5F 5F 00
+ 000000A5		     1	    .code
+ 000000A5  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000000A7  E8 00000000 E     1	        call SetTextColor
+ 000000AC  52		     1	        PUSH    EDX
+ 000000AD  BA 000003B1 R     1	        MOV EDX, OFFSET ??0004
+ 000000B2  E8 00000000 E     1	        CALL    WriteString
+ 000000B7  5A		     1	        POP EDX
+				    mGotoxy 28, 4                                       
+ 000000B8  52		     1	    PUSH    EDX
+ 000000B9  B6 04	     1	    MOV DH, 4
+ 000000BB  B2 1C	     1	    MOV DL, 28
+ 000000BD  E8 00000000 E     1	    CALL    Gotoxy
+ 000000C2  5A		     1	    POP EDX
+				    mWrite  "|        | |       |      /       /    \  | \  / | |     "   
+ 000003EB		     1	    .data
+ 000003EB 7C 20 20 20 20     1	        ??0005 BYTE "|        | |       |      /       /    \  | \  / | |     ", 0
+	   20 20 20 20 7C
+	   20 7C 20 20 20
+	   20 20 20 20 7C
+	   20 20 20 20 20
+	   20 2F 20 20 20
+	   20 20 20 20 2F
+	   20 20 20 20 5C
+	   20 20 7C 20 5C
+	   20 20 2F 20 7C
+	   20 7C 20 20 20
+	   20 20 00
+ 000000C3		     1	    .code
+ 000000C3  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000000C5  E8 00000000 E     1	        call SetTextColor
+ 000000CA  52		     1	        PUSH    EDX
+ 000000CB  BA 000003EB R     1	        MOV EDX, OFFSET ??0005
+ 000000D0  E8 00000000 E     1	        CALL    WriteString
+ 000000D5  5A		     1	        POP EDX
+				    mGotoxy 28, 5 
+ 000000D6  52		     1	    PUSH    EDX
+ 000000D7  B6 05	     1	    MOV DH, 5
+ 000000D9  B2 1C	     1	    MOV DL, 28
+ 000000DB  E8 00000000 E     1	    CALL    Gotoxy
+ 000000E0  5A		     1	    POP EDX
+				    mWrite  "|        | |       |      |       |    |  |  \/  | |"
+ 00000425		     1	    .data
+ 00000425 7C 20 20 20 20     1	        ??0006 BYTE "|        | |       |      |       |    |  |  \/  | |", 0
+	   20 20 20 20 7C
+	   20 7C 20 20 20
+	   20 20 20 20 7C
+	   20 20 20 20 20
+	   20 7C 20 20 20
+	   20 20 20 20 7C
+	   20 20 20 20 7C
+	   20 20 7C 20 20
+	   5C 2F 20 20 7C
+	   20 7C 00
+ 000000E1		     1	    .code
+ 000000E1  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000000E3  E8 00000000 E     1	        call SetTextColor
+ 000000E8  52		     1	        PUSH    EDX
+ 000000E9  BA 00000425 R     1	        MOV EDX, OFFSET ??0006
+ 000000EE  E8 00000000 E     1	        CALL    WriteString
+ 000000F3  5A		     1	        POP EDX
+				    mGotoxy 28, 6
+ 000000F4  52		     1	    PUSH    EDX
+ 000000F5  B6 06	     1	    MOV DH, 6
+ 000000F7  B2 1C	     1	    MOV DL, 28
+ 000000F9  E8 00000000 E     1	    CALL    Gotoxy
+ 000000FE  5A		     1	    POP EDX
+				    mWrite  "|   /\   | |_____  |      |       |    |  |      | |_____ "
+ 0000045A		     1	    .data
+ 0000045A 7C 20 20 20 2F     1	        ??0007 BYTE "|   /\   | |_____  |      |       |    |  |      | |_____ ", 0
+	   5C 20 20 20 7C
+	   20 7C 5F 5F 5F
+	   5F 5F 20 20 7C
+	   20 20 20 20 20
+	   20 7C 20 20 20
+	   20 20 20 20 7C
+	   20 20 20 20 7C
+	   20 20 7C 20 20
+	   20 20 20 20 7C
+	   20 7C 5F 5F 5F
+	   5F 5F 20 00
+ 000000FF		     1	    .code
+ 000000FF  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000101  E8 00000000 E     1	        call SetTextColor
+ 00000106  52		     1	        PUSH    EDX
+ 00000107  BA 0000045A R     1	        MOV EDX, OFFSET ??0007
+ 0000010C  E8 00000000 E     1	        CALL    WriteString
+ 00000111  5A		     1	        POP EDX
+				    mGotoxy 28, 7
+ 00000112  52		     1	    PUSH    EDX
+ 00000113  B6 07	     1	    MOV DH, 7
+ 00000115  B2 1C	     1	    MOV DL, 28
+ 00000117  E8 00000000 E     1	    CALL    Gotoxy
+ 0000011C  5A		     1	    POP EDX
+				    mWrite  "|  /  \  | |       |      |       |    |  |      | |     "
+ 00000495		     1	    .data
+ 00000495 7C 20 20 2F 20     1	        ??0008 BYTE "|  /  \  | |       |      |       |    |  |      | |     ", 0
+	   20 5C 20 20 7C
+	   20 7C 20 20 20
+	   20 20 20 20 7C
+	   20 20 20 20 20
+	   20 7C 20 20 20
+	   20 20 20 20 7C
+	   20 20 20 20 7C
+	   20 20 7C 20 20
+	   20 20 20 20 7C
+	   20 7C 20 20 20
+	   20 20 00
+ 0000011D		     1	    .code
+ 0000011D  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000011F  E8 00000000 E     1	        call SetTextColor
+ 00000124  52		     1	        PUSH    EDX
+ 00000125  BA 00000495 R     1	        MOV EDX, OFFSET ??0008
+ 0000012A  E8 00000000 E     1	        CALL    WriteString
+ 0000012F  5A		     1	        POP EDX
+				    mGotoxy 28, 8
+ 00000130  52		     1	    PUSH    EDX
+ 00000131  B6 08	     1	    MOV DH, 8
+ 00000133  B2 1C	     1	    MOV DL, 28
+ 00000135  E8 00000000 E     1	    CALL    Gotoxy
+ 0000013A  5A		     1	    POP EDX
+				    mWrite  "\_/    \_/ |_____  |_____ \_____  \____/  |      | |_____ "
+ 000004CF		     1	    .data
+ 000004CF 5C 5F 2F 20 20     1	        ??0009 BYTE "\_/    \_/ |_____  |_____ \_____  \____/  |      | |_____ ", 0
+	   20 20 5C 5F 2F
+	   20 7C 5F 5F 5F
+	   5F 5F 20 20 7C
+	   5F 5F 5F 5F 5F
+	   20 5C 5F 5F 5F
+	   5F 5F 20 20 5C
+	   5F 5F 5F 5F 2F
+	   20 20 7C 20 20
+	   20 20 20 20 7C
+	   20 7C 5F 5F 5F
+	   5F 5F 20 00
+ 0000013B		     1	    .code
+ 0000013B  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000013D  E8 00000000 E     1	        call SetTextColor
+ 00000142  52		     1	        PUSH    EDX
+ 00000143  BA 000004CF R     1	        MOV EDX, OFFSET ??0009
+ 00000148  E8 00000000 E     1	        CALL    WriteString
+ 0000014D  5A		     1	        POP EDX
+
+				    
+				    mGotoxy 10, 10                                     
+ 0000014E  52		     1	    PUSH    EDX
+ 0000014F  B6 0A	     1	    MOV DH, 10
+ 00000151  B2 0A	     1	    MOV DL, 10
+ 00000153  E8 00000000 E     1	    CALL    Gotoxy
+ 00000158  5A		     1	    POP EDX
+				    mWrite  "       \|/                                                                           \|/"   
+ 0000050A		     1	    .data
+ 0000050A 20 20 20 20 20     1	        ??000A BYTE "       \|/                                                                           \|/", 0
+	   20 20 5C 7C 2F
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   5C 7C 2F 00
+ 00000159		     1	    .code
+ 00000159  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000015B  E8 00000000 E     1	        call SetTextColor
+ 00000160  52		     1	        PUSH    EDX
+ 00000161  BA 0000050A R     1	        MOV EDX, OFFSET ??000A
+ 00000166  E8 00000000 E     1	        CALL    WriteString
+ 0000016B  5A		     1	        POP EDX
+				    mGotoxy 10, 11  
+ 0000016C  52		     1	    PUSH    EDX
+ 0000016D  B6 0B	     1	    MOV DH, 11
+ 0000016F  B2 0A	     1	    MOV DL, 10
+ 00000171  E8 00000000 E     1	    CALL    Gotoxy
+ 00000176  5A		     1	    POP EDX
+				    mWrite  "    ____|______                                                                 ______|_____"
+ 00000563		     1	    .data
+ 00000563 20 20 20 20 5F     1	        ??000B BYTE "    ____|______                                                                 ______|_____", 0
+	   5F 5F 5F 7C 5F
+	   5F 5F 5F 5F 5F
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   5F 5F 5F 5F 5F
+	   5F 7C 5F 5F 5F
+	   5F 5F 00
+ 00000177		     1	    .code
+ 00000177  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000179  E8 00000000 E     1	        call SetTextColor
+ 0000017E  52		     1	        PUSH    EDX
+ 0000017F  BA 00000563 R     1	        MOV EDX, OFFSET ??000B
+ 00000184  E8 00000000 E     1	        CALL    WriteString
+ 00000189  5A		     1	        POP EDX
+				    mGotoxy 10, 12
+ 0000018A  52		     1	    PUSH    EDX
+ 0000018B  B6 0C	     1	    MOV DH, 12
+ 0000018D  B2 0A	     1	    MOV DL, 10
+ 0000018F  E8 00000000 E     1	    CALL    Gotoxy
+ 00000194  5A		     1	    POP EDX
+				    mWrite  "  /            \                                                               /            \"
+ 000005C0		     1	    .data
+ 000005C0 20 20 2F 20 20     1	        ??000C BYTE "  /            \                                                               /            \", 0
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   5C 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 2F
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 5C 00
+ 00000195		     1	    .code
+ 00000195  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000197  E8 00000000 E     1	        call SetTextColor
+ 0000019C  52		     1	        PUSH    EDX
+ 0000019D  BA 000005C0 R     1	        MOV EDX, OFFSET ??000C
+ 000001A2  E8 00000000 E     1	        CALL    WriteString
+ 000001A7  5A		     1	        POP EDX
+				    mGotoxy 10, 13
+ 000001A8  52		     1	    PUSH    EDX
+ 000001A9  B6 0D	     1	    MOV DH, 13
+ 000001AB  B2 0A	     1	    MOV DL, 10
+ 000001AD  E8 00000000 E     1	    CALL    Gotoxy
+ 000001B2  5A		     1	    POP EDX
+				    mWrite  " /              \                                                             /              \"
+ 0000061E		     1	    .data
+ 0000061E 20 2F 20 20 20     1	        ??000D BYTE " /              \                                                             /              \", 0
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 5C 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 2F 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 5C 00
+ 000001B3		     1	    .code
+ 000001B3  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000001B5  E8 00000000 E     1	        call SetTextColor
+ 000001BA  52		     1	        PUSH    EDX
+ 000001BB  BA 0000061E R     1	        MOV EDX, OFFSET ??000D
+ 000001C0  E8 00000000 E     1	        CALL    WriteString
+ 000001C5  5A		     1	        POP EDX
+				    mGotoxy 10, 14
+ 000001C6  52		     1	    PUSH    EDX
+ 000001C7  B6 0E	     1	    MOV DH, 14
+ 000001C9  B2 0A	     1	    MOV DL, 10
+ 000001CB  E8 00000000 E     1	    CALL    Gotoxy
+ 000001D0  5A		     1	    POP EDX
+				    mWrite  "|                |                                                           |                |"
+ 0000067D		     1	    .data
+ 0000067D 7C 20 20 20 20     1	        ??000E BYTE "|                |                                                           |                |", 0
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 7C 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 7C 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 7C
+	   00
+ 000001D1		     1	    .code
+ 000001D1  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000001D3  E8 00000000 E     1	        call SetTextColor
+ 000001D8  52		     1	        PUSH    EDX
+ 000001D9  BA 0000067D R     1	        MOV EDX, OFFSET ??000E
+ 000001DE  E8 00000000 E     1	        CALL    WriteString
+ 000001E3  5A		     1	        POP EDX
+				    mGotoxy 10, 15
+ 000001E4  52		     1	    PUSH    EDX
+ 000001E5  B6 0F	     1	    MOV DH, 15
+ 000001E7  B2 0A	     1	    MOV DL, 10
+ 000001E9  E8 00000000 E     1	    CALL    Gotoxy
+ 000001EE  5A		     1	    POP EDX
+				    mWrite  "|  *****  *****  |                                                           |  *****  *****  |"
+ 000006DD		     1	    .data
+ 000006DD 7C 20 20 2A 2A     1	        ??000F BYTE "|  *****  *****  |                                                           |  *****  *****  |", 0
+	   2A 2A 2A 20 20
+	   2A 2A 2A 2A 2A
+	   20 20 7C 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 7C 20 20
+	   2A 2A 2A 2A 2A
+	   20 20 2A 2A 2A
+	   2A 2A 20 20 7C
+	   00
+ 000001EF		     1	    .code
+ 000001EF  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000001F1  E8 00000000 E     1	        call SetTextColor
+ 000001F6  52		     1	        PUSH    EDX
+ 000001F7  BA 000006DD R     1	        MOV EDX, OFFSET ??000F
+ 000001FC  E8 00000000 E     1	        CALL    WriteString
+ 00000201  5A		     1	        POP EDX
+				    mGotoxy 10, 16
+ 00000202  52		     1	    PUSH    EDX
+ 00000203  B6 10	     1	    MOV DH, 16
+ 00000205  B2 0A	     1	    MOV DL, 10
+ 00000207  E8 00000000 E     1	    CALL    Gotoxy
+ 0000020C  5A		     1	    POP EDX
+				    mWrite  "|    *      *    |                                                           |   *      *     |"
+ 0000073D		     1	    .data
+ 0000073D 7C 20 20 20 20     1	        ??0010 BYTE "|    *      *    |                                                           |   *      *     |", 0
+	   2A 20 20 20 20
+	   20 20 2A 20 20
+	   20 20 7C 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 7C 20 20
+	   20 2A 20 20 20
+	   20 20 20 2A 20
+	   20 20 20 20 7C
+	   00
+ 0000020D		     1	    .code
+ 0000020D  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000020F  E8 00000000 E     1	        call SetTextColor
+ 00000214  52		     1	        PUSH    EDX
+ 00000215  BA 0000073D R     1	        MOV EDX, OFFSET ??0010
+ 0000021A  E8 00000000 E     1	        CALL    WriteString
+ 0000021F  5A		     1	        POP EDX
+				    mGotoxy 10, 17
+ 00000220  52		     1	    PUSH    EDX
+ 00000221  B6 11	     1	    MOV DH, 17
+ 00000223  B2 0A	     1	    MOV DL, 10
+ 00000225  E8 00000000 E     1	    CALL    Gotoxy
+ 0000022A  5A		     1	    POP EDX
+				    mWrite  "|       *        |                                                           |      *         |"
+ 0000079D		     1	    .data
+ 0000079D 7C 20 20 20 20     1	        ??0011 BYTE "|       *        |                                                           |      *         |", 0
+	   20 20 20 2A 20
+	   20 20 20 20 20
+	   20 20 7C 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 7C 20 20
+	   20 20 20 20 2A
+	   20 20 20 20 20
+	   20 20 20 20 7C
+	   00
+ 0000022B		     1	    .code
+ 0000022B  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000022D  E8 00000000 E     1	        call SetTextColor
+ 00000232  52		     1	        PUSH    EDX
+ 00000233  BA 0000079D R     1	        MOV EDX, OFFSET ??0011
+ 00000238  E8 00000000 E     1	        CALL    WriteString
+ 0000023D  5A		     1	        POP EDX
+				    mGotoxy 10, 18
+ 0000023E  52		     1	    PUSH    EDX
+ 0000023F  B6 12	     1	    MOV DH, 18
+ 00000241  B2 0A	     1	    MOV DL, 10
+ 00000243  E8 00000000 E     1	    CALL    Gotoxy
+ 00000248  5A		     1	    POP EDX
+				    mWrite  "|         *      |                                                           |     *          |"
+ 000007FD		     1	    .data
+ 000007FD 7C 20 20 20 20     1	        ??0012 BYTE "|         *      |                                                           |     *          |", 0
+	   20 20 20 20 20
+	   2A 20 20 20 20
+	   20 20 7C 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 7C 20 20
+	   20 20 20 2A 20
+	   20 20 20 20 20
+	   20 20 20 20 7C
+	   00
+ 00000249		     1	    .code
+ 00000249  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000024B  E8 00000000 E     1	        call SetTextColor
+ 00000250  52		     1	        PUSH    EDX
+ 00000251  BA 000007FD R     1	        MOV EDX, OFFSET ??0012
+ 00000256  E8 00000000 E     1	        CALL    WriteString
+ 0000025B  5A		     1	        POP EDX
+				    mGotoxy 10, 19     
+ 0000025C  52		     1	    PUSH    EDX
+ 0000025D  B6 13	     1	    MOV DH, 19
+ 0000025F  B2 0A	     1	    MOV DL, 10
+ 00000261  E8 00000000 E     1	    CALL    Gotoxy
+ 00000266  5A		     1	    POP EDX
+				    mWrite  "|       *        |                                                           |      *         |"
+ 0000085D		     1	    .data
+ 0000085D 7C 20 20 20 20     1	        ??0013 BYTE "|       *        |                                                           |      *         |", 0
+	   20 20 20 2A 20
+	   20 20 20 20 20
+	   20 20 7C 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 7C 20 20
+	   20 20 20 20 2A
+	   20 20 20 20 20
+	   20 20 20 20 7C
+	   00
+ 00000267		     1	    .code
+ 00000267  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000269  E8 00000000 E     1	        call SetTextColor
+ 0000026E  52		     1	        PUSH    EDX
+ 0000026F  BA 0000085D R     1	        MOV EDX, OFFSET ??0013
+ 00000274  E8 00000000 E     1	        CALL    WriteString
+ 00000279  5A		     1	        POP EDX
+				    mGotoxy 10, 20                        
+ 0000027A  52		     1	    PUSH    EDX
+ 0000027B  B6 14	     1	    MOV DH, 20
+ 0000027D  B2 0A	     1	    MOV DL, 10
+ 0000027F  E8 00000000 E     1	    CALL    Gotoxy
+ 00000284  5A		     1	    POP EDX
+				    mWrite  "|   **********   |                                                           |   **********   |"
+ 000008BD		     1	    .data
+ 000008BD 7C 20 20 20 2A     1	        ??0014 BYTE "|   **********   |                                                           |   **********   |", 0
+	   2A 2A 2A 2A 2A
+	   2A 2A 2A 2A 20
+	   20 20 7C 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 7C 20 20
+	   20 2A 2A 2A 2A
+	   2A 2A 2A 2A 2A
+	   2A 20 20 20 7C
+	   00
+ 00000285		     1	    .code
+ 00000285  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000287  E8 00000000 E     1	        call SetTextColor
+ 0000028C  52		     1	        PUSH    EDX
+ 0000028D  BA 000008BD R     1	        MOV EDX, OFFSET ??0014
+ 00000292  E8 00000000 E     1	        CALL    WriteString
+ 00000297  5A		     1	        POP EDX
+				    mGotoxy 10, 21
+ 00000298  52		     1	    PUSH    EDX
+ 00000299  B6 15	     1	    MOV DH, 21
+ 0000029B  B2 0A	     1	    MOV DL, 10
+ 0000029D  E8 00000000 E     1	    CALL    Gotoxy
+ 000002A2  5A		     1	    POP EDX
+				    mWrite  "|    *      *    |                                                           |    *      *    |"
+ 0000091D		     1	    .data
+ 0000091D 7C 20 20 20 20     1	        ??0015 BYTE "|    *      *    |                                                           |    *      *    |", 0
+	   2A 20 20 20 20
+	   20 20 2A 20 20
+	   20 20 7C 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 7C 20 20
+	   20 20 2A 20 20
+	   20 20 20 20 2A
+	   20 20 20 20 7C
+	   00
+ 000002A3		     1	    .code
+ 000002A3  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000002A5  E8 00000000 E     1	        call SetTextColor
+ 000002AA  52		     1	        PUSH    EDX
+ 000002AB  BA 0000091D R     1	        MOV EDX, OFFSET ??0015
+ 000002B0  E8 00000000 E     1	        CALL    WriteString
+ 000002B5  5A		     1	        POP EDX
+				    mGotoxy 10, 22
+ 000002B6  52		     1	    PUSH    EDX
+ 000002B7  B6 16	     1	    MOV DH, 22
+ 000002B9  B2 0A	     1	    MOV DL, 10
+ 000002BB  E8 00000000 E     1	    CALL    Gotoxy
+ 000002C0  5A		     1	    POP EDX
+				    mWrite  "|     ******     |                                                           |     ******     |"
+ 0000097D		     1	    .data
+ 0000097D 7C 20 20 20 20     1	        ??0016 BYTE "|     ******     |                                                           |     ******     |", 0
+	   20 2A 2A 2A 2A
+	   2A 2A 20 20 20
+	   20 20 7C 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 7C 20 20
+	   20 20 20 2A 2A
+	   2A 2A 2A 2A 20
+	   20 20 20 20 7C
+	   00
+ 000002C1		     1	    .code
+ 000002C1  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000002C3  E8 00000000 E     1	        call SetTextColor
+ 000002C8  52		     1	        PUSH    EDX
+ 000002C9  BA 0000097D R     1	        MOV EDX, OFFSET ??0016
+ 000002CE  E8 00000000 E     1	        CALL    WriteString
+ 000002D3  5A		     1	        POP EDX
+				    mGotoxy 10, 23
+ 000002D4  52		     1	    PUSH    EDX
+ 000002D5  B6 17	     1	    MOV DH, 23
+ 000002D7  B2 0A	     1	    MOV DL, 10
+ 000002D9  E8 00000000 E     1	    CALL    Gotoxy
+ 000002DE  5A		     1	    POP EDX
+				    mWrite  "|________________|                                                           |________________|"
+ 000009DD		     1	    .data
+ 000009DD 7C 5F 5F 5F 5F     1	        ??0017 BYTE "|________________|                                                           |________________|", 0
+	   5F 5F 5F 5F 5F
+	   5F 5F 5F 5F 5F
+	   5F 5F 7C 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 7C 5F 5F
+	   5F 5F 5F 5F 5F
+	   5F 5F 5F 5F 5F
+	   5F 5F 5F 5F 7C
+	   00
+ 000002DF		     1	    .code
+ 000002DF  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000002E1  E8 00000000 E     1	        call SetTextColor
+ 000002E6  52		     1	        PUSH    EDX
+ 000002E7  BA 000009DD R     1	        MOV EDX, OFFSET ??0017
+ 000002EC  E8 00000000 E     1	        CALL    WriteString
+ 000002F1  5A		     1	        POP EDX
+				;基本資料-------------------------------
+				    mGotoxy 40, 12                                      
+ 000002F2  52		     1	    PUSH    EDX
+ 000002F3  B6 0C	     1	    MOV DH, 12
+ 000002F5  B2 28	     1	    MOV DL, 40
+ 000002F7  E8 00000000 E     1	    CALL    Gotoxy
+ 000002FC  5A		     1	    POP EDX
+				    mWrite  "Assembly Language Final Group Project"
+ 00000A3D		     1	    .data
+ 00000A3D 41 73 73 65 6D     1	        ??0018 BYTE "Assembly Language Final Group Project", 0
+	   62 6C 79 20 4C
+	   61 6E 67 75 61
+	   67 65 20 46 69
+	   6E 61 6C 20 47
+	   72 6F 75 70 20
+	   50 72 6F 6A 65
+	   63 74 00
+ 000002FD		     1	    .code
+ 000002FD  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000002FF  E8 00000000 E     1	        call SetTextColor
+ 00000304  52		     1	        PUSH    EDX
+ 00000305  BA 00000A3D R     1	        MOV EDX, OFFSET ??0018
+ 0000030A  E8 00000000 E     1	        CALL    WriteString
+ 0000030F  5A		     1	        POP EDX
+				    mGotoxy 55, 14                                      
+ 00000310  52		     1	    PUSH    EDX
+ 00000311  B6 0E	     1	    MOV DH, 14
+ 00000313  B2 37	     1	    MOV DL, 55
+ 00000315  E8 00000000 E     1	    CALL    Gotoxy
+ 0000031A  5A		     1	    POP EDX
+				    mWrite  "Group 5"
+ 00000A63		     1	    .data
+ 00000A63 47 72 6F 75 70     1	        ??0019 BYTE "Group 5", 0
+	   20 35 00
+ 0000031B		     1	    .code
+ 0000031B  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000031D  E8 00000000 E     1	        call SetTextColor
+ 00000322  52		     1	        PUSH    EDX
+ 00000323  BA 00000A63 R     1	        MOV EDX, OFFSET ??0019
+ 00000328  E8 00000000 E     1	        CALL    WriteString
+ 0000032D  5A		     1	        POP EDX
+				    mGotoxy 40, 16
+ 0000032E  52		     1	    PUSH    EDX
+ 0000032F  B6 10	     1	    MOV DH, 16
+ 00000331  B2 28	     1	    MOV DL, 40
+ 00000333  E8 00000000 E     1	    CALL    Gotoxy
+ 00000338  5A		     1	    POP EDX
+				    mWrite  "資工二乙     408262143    Tsai-Hsin Lin"
+ 00000A6B		     1	    .data
+ 00000A6B B8 EA A4 75 A4     1	        ??001A BYTE "資工二乙     408262143    Tsai-Hsin Lin", 0
+	   47 A4 41 20 20
+	   20 20 20 34 30
+	   38 32 36 32 31
+	   34 33 20 20 20
+	   20 54 73 61 69
+	   2D 48 73 69 6E
+	   20 4C 69 6E 00
+ 00000339		     1	    .code
+ 00000339  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000033B  E8 00000000 E     1	        call SetTextColor
+ 00000340  52		     1	        PUSH    EDX
+ 00000341  BA 00000A6B R     1	        MOV EDX, OFFSET ??001A
+ 00000346  E8 00000000 E     1	        CALL    WriteString
+ 0000034B  5A		     1	        POP EDX
+				    mGotoxy 40, 18
+ 0000034C  52		     1	    PUSH    EDX
+ 0000034D  B6 12	     1	    MOV DH, 18
+ 0000034F  B2 28	     1	    MOV DL, 40
+ 00000351  E8 00000000 E     1	    CALL    Gotoxy
+ 00000356  5A		     1	    POP EDX
+				    mWrite  "資工二乙     408262349    Zi-Qing Chang"
+ 00000A93		     1	    .data
+ 00000A93 B8 EA A4 75 A4     1	        ??001B BYTE "資工二乙     408262349    Zi-Qing Chang", 0
+	   47 A4 41 20 20
+	   20 20 20 34 30
+	   38 32 36 32 33
+	   34 39 20 20 20
+	   20 5A 69 2D 51
+	   69 6E 67 20 43
+	   68 61 6E 67 00
+ 00000357		     1	    .code
+ 00000357  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000359  E8 00000000 E     1	        call SetTextColor
+ 0000035E  52		     1	        PUSH    EDX
+ 0000035F  BA 00000A93 R     1	        MOV EDX, OFFSET ??001B
+ 00000364  E8 00000000 E     1	        CALL    WriteString
+ 00000369  5A		     1	        POP EDX
+				    mGotoxy 40, 20
+ 0000036A  52		     1	    PUSH    EDX
+ 0000036B  B6 14	     1	    MOV DH, 20
+ 0000036D  B2 28	     1	    MOV DL, 40
+ 0000036F  E8 00000000 E     1	    CALL    Gotoxy
+ 00000374  5A		     1	    POP EDX
+				    mWrite  "資工二乙     408262416    Yan-Ting Chen"
+ 00000ABB		     1	    .data
+ 00000ABB B8 EA A4 75 A4     1	        ??001C BYTE "資工二乙     408262416    Yan-Ting Chen", 0
+	   47 A4 41 20 20
+	   20 20 20 34 30
+	   38 32 36 32 34
+	   31 36 20 20 20
+	   20 59 61 6E 2D
+	   54 69 6E 67 20
+	   43 68 65 6E 00
+ 00000375		     1	    .code
+ 00000375  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000377  E8 00000000 E     1	        call SetTextColor
+ 0000037C  52		     1	        PUSH    EDX
+ 0000037D  BA 00000ABB R     1	        MOV EDX, OFFSET ??001C
+ 00000382  E8 00000000 E     1	        CALL    WriteString
+ 00000387  5A		     1	        POP EDX
+				    mGotoxy 44, 22
+ 00000388  52		     1	    PUSH    EDX
+ 00000389  B6 16	     1	    MOV DH, 22
+ 0000038B  B2 2C	     1	    MOV DL, 44
+ 0000038D  E8 00000000 E     1	    CALL    Gotoxy
+ 00000392  5A		     1	    POP EDX
+				;--------------------------------------
+ 00000393  E8 00000000 E	    call    WaitMsg
+				    mGotoxy 0, 0  
+ 00000398  52		     1	    PUSH    EDX
+ 00000399  B6 00	     1	    MOV DH, 0
+ 0000039B  B2 00	     1	    MOV DL, 0
+ 0000039D  E8 00000000 E     1	    CALL    Gotoxy
+ 000003A2  5A		     1	    POP EDX
+				       
+ 000003A3  C3			    RET
+ 000003A4			DrawFirstScreen ENDP
+
+				;規則------------------------
+ 000003A4			rule proc
+ 000003A4  E8 00000000 E	    call    ClrScr
+ 000003A9  E8 FFFFFC5E		    call    PrintWalls
+				    
+				    mGotoxy 15, 2                                       
+ 000003AE  52		     1	    PUSH    EDX
+ 000003AF  B6 02	     1	    MOV DH, 2
+ 000003B1  B2 0F	     1	    MOV DL, 15
+ 000003B3  E8 00000000 E     1	    CALL    Gotoxy
+ 000003B8  5A		     1	    POP EDX
+				    mWrite  " _______      ____     ____    ____ _______        ______   __     __  __      _______"  
+ 00000AE3		     1	    .data
+ 00000AE3 20 5F 5F 5F 5F     1	        ??001D BYTE " _______      ____     ____    ____ _______        ______   __     __  __      _______", 0
+	   5F 5F 5F 20 20
+	   20 20 20 20 5F
+	   5F 5F 5F 20 20
+	   20 20 20 5F 5F
+	   5F 5F 20 20 20
+	   20 5F 5F 5F 5F
+	   20 5F 5F 5F 5F
+	   5F 5F 5F 20 20
+	   20 20 20 20 20
+	   20 5F 5F 5F 5F
+	   5F 5F 20 20 20
+	   5F 5F 20 20 20
+	   20 20 5F 5F 20
+	   20 5F 5F 20 20
+	   20 20 20 20 5F
+	   5F 5F 5F 5F 5F
+	   5F 00
+ 000003B9		     1	    .code
+ 000003B9  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000003BB  E8 00000000 E     1	        call SetTextColor
+ 000003C0  52		     1	        PUSH    EDX
+ 000003C1  BA 00000AE3 R     1	        MOV EDX, OFFSET ??001D
+ 000003C6  E8 00000000 E     1	        CALL    WriteString
+ 000003CB  5A		     1	        POP EDX
+				    mGotoxy 15, 3 
+ 000003CC  52		     1	    PUSH    EDX
+ 000003CD  B6 03	     1	    MOV DH, 3
+ 000003CF  B2 0F	     1	    MOV DL, 15
+ 000003D1  E8 00000000 E     1	    CALL    Gotoxy
+ 000003D6  5A		     1	    POP EDX
+				    mWrite  "/  _____\    /    \    |   \  /   | |  ____|      | ____ \  | |    | | | |     |  ____|"
+ 00000B3A		     1	    .data
+ 00000B3A 2F 20 20 5F 5F     1	        ??001E BYTE "/  _____\    /    \    |   \  /   | |  ____|      | ____ \  | |    | | | |     |  ____|", 0
+	   5F 5F 5F 5C 20
+	   20 20 20 2F 20
+	   20 20 20 5C 20
+	   20 20 20 7C 20
+	   20 20 5C 20 20
+	   2F 20 20 20 7C
+	   20 7C 20 20 5F
+	   5F 5F 5F 7C 20
+	   20 20 20 20 20
+	   7C 20 5F 5F 5F
+	   5F 20 5C 20 20
+	   7C 20 7C 20 20
+	   20 20 7C 20 7C
+	   20 7C 20 7C 20
+	   20 20 20 20 7C
+	   20 20 5F 5F 5F
+	   5F 7C 00
+ 000003D7		     1	    .code
+ 000003D7  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000003D9  E8 00000000 E     1	        call SetTextColor
+ 000003DE  52		     1	        PUSH    EDX
+ 000003DF  BA 00000B3A R     1	        MOV EDX, OFFSET ??001E
+ 000003E4  E8 00000000 E     1	        CALL    WriteString
+ 000003E9  5A		     1	        POP EDX
+				    mGotoxy 15, 4 
+ 000003EA  52		     1	    PUSH    EDX
+ 000003EB  B6 04	     1	    MOV DH, 4
+ 000003ED  B2 0F	     1	    MOV DL, 15
+ 000003EF  E8 00000000 E     1	    CALL    Gotoxy
+ 000003F4  5A		     1	    POP EDX
+				    mWrite  "| |         /  /\  \   | |\ \/ /| | | |           | |   \ | | |    | | | |     | | "
+ 00000B92		     1	    .data
+ 00000B92 7C 20 7C 20 20     1	        ??001F BYTE "| |         /  /\  \   | |\ \/ /| | | |           | |   \ | | |    | | | |     | | ", 0
+	   20 20 20 20 20
+	   20 20 2F 20 20
+	   2F 5C 20 20 5C
+	   20 20 20 7C 20
+	   7C 5C 20 5C 2F
+	   20 2F 7C 20 7C
+	   20 7C 20 7C 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   7C 20 7C 20 20
+	   20 5C 20 7C 20
+	   7C 20 7C 20 20
+	   20 20 7C 20 7C
+	   20 7C 20 7C 20
+	   20 20 20 20 7C
+	   20 7C 20 00
+ 000003F5		     1	    .code
+ 000003F5  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000003F7  E8 00000000 E     1	        call SetTextColor
+ 000003FC  52		     1	        PUSH    EDX
+ 000003FD  BA 00000B92 R     1	        MOV EDX, OFFSET ??001F
+ 00000402  E8 00000000 E     1	        CALL    WriteString
+ 00000407  5A		     1	        POP EDX
+				    mGotoxy 15, 5
+ 00000408  52		     1	    PUSH    EDX
+ 00000409  B6 05	     1	    MOV DH, 5
+ 0000040B  B2 0F	     1	    MOV DL, 15
+ 0000040D  E8 00000000 E     1	    CALL    Gotoxy
+ 00000412  5A		     1	    POP EDX
+				    mWrite  "| |  ___   /  /__\  \  | | \  / | | | |____       | |___/ | | |    | | | |     | |____"
+ 00000BE6		     1	    .data
+ 00000BE6 7C 20 7C 20 20     1	        ??0020 BYTE "| |  ___   /  /__\  \  | | \  / | | | |____       | |___/ | | |    | | | |     | |____", 0
+	   5F 5F 5F 20 20
+	   20 2F 20 20 2F
+	   5F 5F 5C 20 20
+	   5C 20 20 7C 20
+	   7C 20 5C 20 20
+	   2F 20 7C 20 7C
+	   20 7C 20 7C 5F
+	   5F 5F 5F 20 20
+	   20 20 20 20 20
+	   7C 20 7C 5F 5F
+	   5F 2F 20 7C 20
+	   7C 20 7C 20 20
+	   20 20 7C 20 7C
+	   20 7C 20 7C 20
+	   20 20 20 20 7C
+	   20 7C 5F 5F 5F
+	   5F 00
+ 00000413		     1	    .code
+ 00000413  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000415  E8 00000000 E     1	        call SetTextColor
+ 0000041A  52		     1	        PUSH    EDX
+ 0000041B  BA 00000BE6 R     1	        MOV EDX, OFFSET ??0020
+ 00000420  E8 00000000 E     1	        CALL    WriteString
+ 00000425  5A		     1	        POP EDX
+				    mGotoxy 15, 6
+ 00000426  52		     1	    PUSH    EDX
+ 00000427  B6 06	     1	    MOV DH, 6
+ 00000429  B2 0F	     1	    MOV DL, 15
+ 0000042B  E8 00000000 E     1	    CALL    Gotoxy
+ 00000430  5A		     1	    POP EDX
+				    mWrite  "| | |_  | /  ______  \ | |  \/  | | |  ____|      | __  _/  | |    | | | |     |  ____|"
+ 00000C3D		     1	    .data
+ 00000C3D 7C 20 7C 20 7C     1	        ??0021 BYTE "| | |_  | /  ______  \ | |  \/  | | |  ____|      | __  _/  | |    | | | |     |  ____|", 0
+	   5F 20 20 7C 20
+	   2F 20 20 5F 5F
+	   5F 5F 5F 5F 20
+	   20 5C 20 7C 20
+	   7C 20 20 5C 2F
+	   20 20 7C 20 7C
+	   20 7C 20 20 5F
+	   5F 5F 5F 7C 20
+	   20 20 20 20 20
+	   7C 20 5F 5F 20
+	   20 5F 2F 20 20
+	   7C 20 7C 20 20
+	   20 20 7C 20 7C
+	   20 7C 20 7C 20
+	   20 20 20 20 7C
+	   20 20 5F 5F 5F
+	   5F 7C 00
+ 00000431		     1	    .code
+ 00000431  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000433  E8 00000000 E     1	        call SetTextColor
+ 00000438  52		     1	        PUSH    EDX
+ 00000439  BA 00000C3D R     1	        MOV EDX, OFFSET ??0021
+ 0000043E  E8 00000000 E     1	        CALL    WriteString
+ 00000443  5A		     1	        POP EDX
+				    mGotoxy 15, 7
+ 00000444  52		     1	    PUSH    EDX
+ 00000445  B6 07	     1	    MOV DH, 7
+ 00000447  B2 0F	     1	    MOV DL, 15
+ 00000449  E8 00000000 E     1	    CALL    Gotoxy
+ 0000044E  5A		     1	    POP EDX
+				    mWrite  "| |___| | |  |    |  | | |      | | | |____       | | \ \   | |____| | | |____ | |____"
+ 00000C95		     1	    .data
+ 00000C95 7C 20 7C 5F 5F     1	        ??0022 BYTE "| |___| | |  |    |  | | |      | | | |____       | | \ \   | |____| | | |____ | |____", 0
+	   5F 7C 20 7C 20
+	   7C 20 20 7C 20
+	   20 20 20 7C 20
+	   20 7C 20 7C 20
+	   7C 20 20 20 20
+	   20 20 7C 20 7C
+	   20 7C 20 7C 5F
+	   5F 5F 5F 20 20
+	   20 20 20 20 20
+	   7C 20 7C 20 5C
+	   20 5C 20 20 20
+	   7C 20 7C 5F 5F
+	   5F 5F 7C 20 7C
+	   20 7C 20 7C 5F
+	   5F 5F 5F 20 7C
+	   20 7C 5F 5F 5F
+	   5F 00
+ 0000044F		     1	    .code
+ 0000044F  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000451  E8 00000000 E     1	        call SetTextColor
+ 00000456  52		     1	        PUSH    EDX
+ 00000457  BA 00000C95 R     1	        MOV EDX, OFFSET ??0022
+ 0000045C  E8 00000000 E     1	        CALL    WriteString
+ 00000461  5A		     1	        POP EDX
+				    mGotoxy 15, 8
+ 00000462  52		     1	    PUSH    EDX
+ 00000463  B6 08	     1	    MOV DH, 8
+ 00000465  B2 0F	     1	    MOV DL, 15
+ 00000467  E8 00000000 E     1	    CALL    Gotoxy
+ 0000046C  5A		     1	    POP EDX
+				    mWrite  "\_______/ |__|    |__| |_|      |_| |______|      |_|  \_\  \________/ |______||______|"
+ 00000CEC		     1	    .data
+ 00000CEC 5C 5F 5F 5F 5F     1	        ??0023 BYTE "\_______/ |__|    |__| |_|      |_| |______|      |_|  \_\  \________/ |______||______|", 0
+	   5F 5F 5F 2F 20
+	   7C 5F 5F 7C 20
+	   20 20 20 7C 5F
+	   5F 7C 20 7C 5F
+	   7C 20 20 20 20
+	   20 20 7C 5F 7C
+	   20 7C 5F 5F 5F
+	   5F 5F 5F 7C 20
+	   20 20 20 20 20
+	   7C 5F 7C 20 20
+	   5C 5F 5C 20 20
+	   5C 5F 5F 5F 5F
+	   5F 5F 5F 5F 2F
+	   20 7C 5F 5F 5F
+	   5F 5F 5F 7C 7C
+	   5F 5F 5F 5F 5F
+	   5F 7C 00
+ 0000046D		     1	    .code
+ 0000046D  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000046F  E8 00000000 E     1	        call SetTextColor
+ 00000474  52		     1	        PUSH    EDX
+ 00000475  BA 00000CEC R     1	        MOV EDX, OFFSET ??0023
+ 0000047A  E8 00000000 E     1	        CALL    WriteString
+ 0000047F  5A		     1	        POP EDX
+
+
+				    mGotoxy 30, 10
+ 00000480  52		     1	    PUSH    EDX
+ 00000481  B6 0A	     1	    MOV DH, 10
+ 00000483  B2 1E	     1	    MOV DL, 30
+ 00000485  E8 00000000 E     1	    CALL    Gotoxy
+ 0000048A  5A		     1	    POP EDX
+				    mWrite  " * First : Enter your name",                                 
+			     1	    LOCAL string
+main.asm(234) : warning A4006:too many arguments in macro call
+ mWrite(1): Macro Called From
+  main.asm(234): Main Line Code
+ 00000D44		     1	    .data
+ 00000D44 20 2A 20 46 69     1	        ??0024 BYTE " * First : Enter your name", 0
+	   72 73 74 20 3A
+	   20 45 6E 74 65
+	   72 20 79 6F 75
+	   72 20 6E 61 6D
+	   65 00
+ 0000048B		     1	    .code
+ 0000048B  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000048D  E8 00000000 E     1	        call SetTextColor
+ 00000492  52		     1	        PUSH    EDX
+ 00000493  BA 00000D44 R     1	        MOV EDX, OFFSET ??0024
+ 00000498  E8 00000000 E     1	        CALL    WriteString
+ 0000049D  5A		     1	        POP EDX
+				    mGotoxy 30, 12                                      
+ 0000049E  52		     1	    PUSH    EDX
+ 0000049F  B6 0C	     1	    MOV DH, 12
+ 000004A1  B2 1E	     1	    MOV DL, 30
+ 000004A3  E8 00000000 E     1	    CALL    Gotoxy
+ 000004A8  5A		     1	    POP EDX
+				    mWrite  " * Second : choose the level that you want to challenge"
+ 00000D5F		     1	    .data
+ 00000D5F 20 2A 20 53 65     1	        ??0025 BYTE " * Second : choose the level that you want to challenge", 0
+	   63 6F 6E 64 20
+	   3A 20 63 68 6F
+	   6F 73 65 20 74
+	   68 65 20 6C 65
+	   76 65 6C 20 74
+	   68 61 74 20 79
+	   6F 75 20 77 61
+	   6E 74 20 74 6F
+	   20 63 68 61 6C
+	   6C 65 6E 67 65
+	   00
+ 000004A9		     1	    .code
+ 000004A9  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000004AB  E8 00000000 E     1	        call SetTextColor
+ 000004B0  52		     1	        PUSH    EDX
+ 000004B1  BA 00000D5F R     1	        MOV EDX, OFFSET ??0025
+ 000004B6  E8 00000000 E     1	        CALL    WriteString
+ 000004BB  5A		     1	        POP EDX
+				    mGotoxy 30, 14                                      
+ 000004BC  52		     1	    PUSH    EDX
+ 000004BD  B6 0E	     1	    MOV DH, 14
+ 000004BF  B2 1E	     1	    MOV DL, 30
+ 000004C1  E8 00000000 E     1	    CALL    Gotoxy
+ 000004C6  5A		     1	    POP EDX
+				    mWrite  " * Start the game"
+ 00000D97		     1	    .data
+ 00000D97 20 2A 20 53 74     1	        ??0026 BYTE " * Start the game", 0
+	   61 72 74 20 74
+	   68 65 20 67 61
+	   6D 65 00
+ 000004C7		     1	    .code
+ 000004C7  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000004C9  E8 00000000 E     1	        call SetTextColor
+ 000004CE  52		     1	        PUSH    EDX
+ 000004CF  BA 00000D97 R     1	        MOV EDX, OFFSET ??0026
+ 000004D4  E8 00000000 E     1	        CALL    WriteString
+ 000004D9  5A		     1	        POP EDX
+				    mGotoxy 33, 16                                      
+ 000004DA  52		     1	    PUSH    EDX
+ 000004DB  B6 10	     1	    MOV DH, 16
+ 000004DD  B2 21	     1	    MOV DL, 33
+ 000004DF  E8 00000000 E     1	    CALL    Gotoxy
+ 000004E4  5A		     1	    POP EDX
+				    mWrite  "Press up, right, down, and left to move your snake !!!"
+ 00000DA9		     1	    .data
+ 00000DA9 50 72 65 73 73     1	        ??0027 BYTE "Press up, right, down, and left to move your snake !!!", 0
+	   20 75 70 2C 20
+	   72 69 67 68 74
+	   2C 20 64 6F 77
+	   6E 2C 20 61 6E
+	   64 20 6C 65 66
+	   74 20 74 6F 20
+	   6D 6F 76 65 20
+	   79 6F 75 72 20
+	   73 6E 61 6B 65
+	   20 21 21 21 00
+ 000004E5		     1	    .code
+ 000004E5  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000004E7  E8 00000000 E     1	        call SetTextColor
+ 000004EC  52		     1	        PUSH    EDX
+ 000004ED  BA 00000DA9 R     1	        MOV EDX, OFFSET ??0027
+ 000004F2  E8 00000000 E     1	        CALL    WriteString
+ 000004F7  5A		     1	        POP EDX
+				    mGotoxy 33, 18
+ 000004F8  52		     1	    PUSH    EDX
+ 000004F9  B6 12	     1	    MOV DH, 18
+ 000004FB  B2 21	     1	    MOV DL, 33
+ 000004FD  E8 00000000 E     1	    CALL    Gotoxy
+ 00000502  5A		     1	    POP EDX
+				    mWrite  "There are 5 different kinds of foods that snake can eat."
+ 00000DE0		     1	    .data
+ 00000DE0 54 68 65 72 65     1	        ??0028 BYTE "There are 5 different kinds of foods that snake can eat.", 0
+	   20 61 72 65 20
+	   35 20 64 69 66
+	   66 65 72 65 6E
+	   74 20 6B 69 6E
+	   64 73 20 6F 66
+	   20 66 6F 6F 64
+	   73 20 74 68 61
+	   74 20 73 6E 61
+	   6B 65 20 63 61
+	   6E 20 65 61 74
+	   2E 00
+ 00000503		     1	    .code
+ 00000503  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000505  E8 00000000 E     1	        call SetTextColor
+ 0000050A  52		     1	        PUSH    EDX
+ 0000050B  BA 00000DE0 R     1	        MOV EDX, OFFSET ??0028
+ 00000510  E8 00000000 E     1	        CALL    WriteString
+ 00000515  5A		     1	        POP EDX
+				    mGotoxy 33, 20
+ 00000516  52		     1	    PUSH    EDX
+ 00000517  B6 14	     1	    MOV DH, 20
+ 00000519  B2 21	     1	    MOV DL, 33
+ 0000051B  E8 00000000 E     1	    CALL    Gotoxy
+ 00000520  5A		     1	    POP EDX
+				    mWrite  "What the snake eat, what the snake become"
+ 00000E19		     1	    .data
+ 00000E19 57 68 61 74 20     1	        ??0029 BYTE "What the snake eat, what the snake become", 0
+	   74 68 65 20 73
+	   6E 61 6B 65 20
+	   65 61 74 2C 20
+	   77 68 61 74 20
+	   74 68 65 20 73
+	   6E 61 6B 65 20
+	   62 65 63 6F 6D
+	   65 00
+ 00000521		     1	    .code
+ 00000521  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000523  E8 00000000 E     1	        call SetTextColor
+ 00000528  52		     1	        PUSH    EDX
+ 00000529  BA 00000E19 R     1	        MOV EDX, OFFSET ??0029
+ 0000052E  E8 00000000 E     1	        CALL    WriteString
+ 00000533  5A		     1	        POP EDX
+				    mGotoxy 33, 22
+ 00000534  52		     1	    PUSH    EDX
+ 00000535  B6 16	     1	    MOV DH, 22
+ 00000537  B2 21	     1	    MOV DL, 33
+ 00000539  E8 00000000 E     1	    CALL    Gotoxy
+ 0000053E  5A		     1	    POP EDX
+				    mWrite  "You will die if you bump to the wall !!!"
+ 00000E43		     1	    .data
+ 00000E43 59 6F 75 20 77     1	        ??002A BYTE "You will die if you bump to the wall !!!", 0
+	   69 6C 6C 20 64
+	   69 65 20 69 66
+	   20 79 6F 75 20
+	   62 75 6D 70 20
+	   74 6F 20 74 68
+	   65 20 77 61 6C
+	   6C 20 21 21 21
+	   00
+ 0000053F		     1	    .code
+ 0000053F  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000541  E8 00000000 E     1	        call SetTextColor
+ 00000546  52		     1	        PUSH    EDX
+ 00000547  BA 00000E43 R     1	        MOV EDX, OFFSET ??002A
+ 0000054C  E8 00000000 E     1	        CALL    WriteString
+ 00000551  5A		     1	        POP EDX
+				    mGotoxy 33, 24
+ 00000552  52		     1	    PUSH    EDX
+ 00000553  B6 18	     1	    MOV DH, 24
+ 00000555  B2 21	     1	    MOV DL, 33
+ 00000557  E8 00000000 E     1	    CALL    Gotoxy
+ 0000055C  5A		     1	    POP EDX
+				    mWrite  "Good Luck & Take care"
+ 00000E6C		     1	    .data
+ 00000E6C 47 6F 6F 64 20     1	        ??002B BYTE "Good Luck & Take care", 0
+	   4C 75 63 6B 20
+	   26 20 54 61 6B
+	   65 20 63 61 72
+	   65 00
+ 0000055D		     1	    .code
+ 0000055D  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000055F  E8 00000000 E     1	        call SetTextColor
+ 00000564  52		     1	        PUSH    EDX
+ 00000565  BA 00000E6C R     1	        MOV EDX, OFFSET ??002B
+ 0000056A  E8 00000000 E     1	        CALL    WriteString
+ 0000056F  5A		     1	        POP EDX
+				    mGotoxy 44, 26
+ 00000570  52		     1	    PUSH    EDX
+ 00000571  B6 1A	     1	    MOV DH, 26
+ 00000573  B2 2C	     1	    MOV DL, 44
+ 00000575  E8 00000000 E     1	    CALL    Gotoxy
+ 0000057A  5A		     1	    POP EDX
+
+ 0000057B  E8 00000000 E	    CALL    WaitMsg
+				    mGotoxy 0, 0  
+ 00000580  52		     1	    PUSH    EDX
+ 00000581  B6 00	     1	    MOV DH, 0
+ 00000583  B2 00	     1	    MOV DL, 0
+ 00000585  E8 00000000 E     1	    CALL    Gotoxy
+ 0000058A  5A		     1	    POP EDX
+ 0000058B  E8 00000000 E	    call Clrscr
+				       
+ 00000590  C3			    ret
+ 00000591			rule endp
+
+				;輸入玩家名------------------
+ 00000591			entername proc
+ 00000591  E8 00000000 E	    call    ClrScr
+ 00000596  E8 FFFFFA71		    call    PrintWalls
+				    mGotoxy 2, 6                                       
+ 0000059B  52		     1	    PUSH    EDX
+ 0000059C  B6 06	     1	    MOV DH, 6
+ 0000059E  B2 02	     1	    MOV DL, 2
+ 000005A0  E8 00000000 E     1	    CALL    Gotoxy
+ 000005A5  5A		     1	    POP EDX
+				    mWrite  "            ---------             ---------             ---------             ---------             --------- "
+ 00000E82		     1	    .data
+ 00000E82 20 20 20 20 20     1	        ??002C BYTE "            ---------             ---------             ---------             ---------             --------- ", 0
+	   20 20 20 20 20
+	   20 20 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 20
+	   00
+ 000005A6		     1	    .code
+ 000005A6  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000005A8  E8 00000000 E     1	        call SetTextColor
+ 000005AD  52		     1	        PUSH    EDX
+ 000005AE  BA 00000E82 R     1	        MOV EDX, OFFSET ??002C
+ 000005B3  E8 00000000 E     1	        CALL    WriteString
+ 000005B8  5A		     1	        POP EDX
+				    mGotoxy 2, 7                                       
+ 000005B9  52		     1	    PUSH    EDX
+ 000005BA  B6 07	     1	    MOV DH, 7
+ 000005BC  B2 02	     1	    MOV DL, 2
+ 000005BE  E8 00000000 E     1	    CALL    Gotoxy
+ 000005C3  5A		     1	    POP EDX
+				    mWrite  " --------- -         - --------- -         - --------- -         - --------- -         - --------- -         - "
+ 00000EF1		     1	    .data
+ 00000EF1 20 2D 2D 2D 2D     1	        ??002D BYTE " --------- -         - --------- -         - --------- -         - --------- -         - --------- -         - ", 0
+	   2D 2D 2D 2D 2D
+	   20 2D 20 20 20
+	   20 20 20 20 20
+	   20 2D 20 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 20 2D 20
+	   20 20 20 20 20
+	   20 20 20 2D 20
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 20
+	   2D 20 20 20 20
+	   20 20 20 20 20
+	   2D 20 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 20 2D 20 20
+	   20 20 20 20 20
+	   20 20 2D 20 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 20 2D
+	   20 20 20 20 20
+	   20 20 20 20 2D
+	   20 00
+ 000005C4		     1	    .code
+ 000005C4  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000005C6  E8 00000000 E     1	        call SetTextColor
+ 000005CB  52		     1	        PUSH    EDX
+ 000005CC  BA 00000EF1 R     1	        MOV EDX, OFFSET ??002D
+ 000005D1  E8 00000000 E     1	        CALL    WriteString
+ 000005D6  5A		     1	        POP EDX
+				    mGotoxy 2, 8
+ 000005D7  52		     1	    PUSH    EDX
+ 000005D8  B6 08	     1	    MOV DH, 8
+ 000005DA  B2 02	     1	    MOV DL, 2
+ 000005DC  E8 00000000 E     1	    CALL    Gotoxy
+ 000005E1  5A		     1	    POP EDX
+				    mWrite  "-         --         --         --         --         --         --         --         --         --     **  -"
+ 00000F61		     1	    .data
+ 00000F61 2D 20 20 20 20     1	        ??002E BYTE "-         --         --         --         --         --         --         --         --         --     **  -", 0
+	   20 20 20 20 20
+	   2D 2D 20 20 20
+	   20 20 20 20 20
+	   20 2D 2D 20 20
+	   20 20 20 20 20
+	   20 20 2D 2D 20
+	   20 20 20 20 20
+	   20 20 20 2D 2D
+	   20 20 20 20 20
+	   20 20 20 20 2D
+	   2D 20 20 20 20
+	   20 20 20 20 20
+	   2D 2D 20 20 20
+	   20 20 20 20 20
+	   20 2D 2D 20 20
+	   20 20 20 20 20
+	   20 20 2D 2D 20
+	   20 20 20 20 20
+	   20 20 20 2D 2D
+	   20 20 20 20 20
+	   2A 2A 20 20 2D
+	   00
+ 000005E2		     1	    .code
+ 000005E2  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000005E4  E8 00000000 E     1	        call SetTextColor
+ 000005E9  52		     1	        PUSH    EDX
+ 000005EA  BA 00000F61 R     1	        MOV EDX, OFFSET ??002E
+ 000005EF  E8 00000000 E     1	        CALL    WriteString
+ 000005F4  5A		     1	        POP EDX
+				    mGotoxy 2, 9                                      
+ 000005F5  52		     1	    PUSH    EDX
+ 000005F6  B6 09	     1	    MOV DH, 9
+ 000005F8  B2 02	     1	    MOV DL, 2
+ 000005FA  E8 00000000 E     1	    CALL    Gotoxy
+ 000005FF  5A		     1	    POP EDX
+				    mWrite  "-         --         --         --         --         --         --         --         --         --     **  -"
+ 00000FD0		     1	    .data
+ 00000FD0 2D 20 20 20 20     1	        ??002F BYTE "-         --         --         --         --         --         --         --         --         --     **  -", 0
+	   20 20 20 20 20
+	   2D 2D 20 20 20
+	   20 20 20 20 20
+	   20 2D 2D 20 20
+	   20 20 20 20 20
+	   20 20 2D 2D 20
+	   20 20 20 20 20
+	   20 20 20 2D 2D
+	   20 20 20 20 20
+	   20 20 20 20 2D
+	   2D 20 20 20 20
+	   20 20 20 20 20
+	   2D 2D 20 20 20
+	   20 20 20 20 20
+	   20 2D 2D 20 20
+	   20 20 20 20 20
+	   20 20 2D 2D 20
+	   20 20 20 20 20
+	   20 20 20 2D 2D
+	   20 20 20 20 20
+	   2A 2A 20 20 2D
+	   00
+ 00000600		     1	    .code
+ 00000600  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000602  E8 00000000 E     1	        call SetTextColor
+ 00000607  52		     1	        PUSH    EDX
+ 00000608  BA 00000FD0 R     1	        MOV EDX, OFFSET ??002F
+ 0000060D  E8 00000000 E     1	        CALL    WriteString
+ 00000612  5A		     1	        POP EDX
+				    mGotoxy 2, 10
+ 00000613  52		     1	    PUSH    EDX
+ 00000614  B6 0A	     1	    MOV DH, 10
+ 00000616  B2 02	     1	    MOV DL, 2
+ 00000618  E8 00000000 E     1	    CALL    Gotoxy
+ 0000061D  5A		     1	    POP EDX
+				    mWrite  "-         --         --         --         --         --         --         --         --         --         -"
+ 0000103F		     1	    .data
+ 0000103F 2D 20 20 20 20     1	        ??0030 BYTE "-         --         --         --         --         --         --         --         --         --         -", 0
+	   20 20 20 20 20
+	   2D 2D 20 20 20
+	   20 20 20 20 20
+	   20 2D 2D 20 20
+	   20 20 20 20 20
+	   20 20 2D 2D 20
+	   20 20 20 20 20
+	   20 20 20 2D 2D
+	   20 20 20 20 20
+	   20 20 20 20 2D
+	   2D 20 20 20 20
+	   20 20 20 20 20
+	   2D 2D 20 20 20
+	   20 20 20 20 20
+	   20 2D 2D 20 20
+	   20 20 20 20 20
+	   20 20 2D 2D 20
+	   20 20 20 20 20
+	   20 20 20 2D 2D
+	   20 20 20 20 20
+	   20 20 20 20 2D
+	   00
+ 0000061E		     1	    .code
+ 0000061E  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000620  E8 00000000 E     1	        call SetTextColor
+ 00000625  52		     1	        PUSH    EDX
+ 00000626  BA 0000103F R     1	        MOV EDX, OFFSET ??0030
+ 0000062B  E8 00000000 E     1	        CALL    WriteString
+ 00000630  5A		     1	        POP EDX
+				    mGotoxy 2, 11                                       
+ 00000631  52		     1	    PUSH    EDX
+ 00000632  B6 0B	     1	    MOV DH, 11
+ 00000634  B2 02	     1	    MOV DL, 2
+ 00000636  E8 00000000 E     1	    CALL    Gotoxy
+ 0000063B  5A		     1	    POP EDX
+				    mWrite  "-         --         --         --         --         --         --         --         --         --         -"
+ 000010AE		     1	    .data
+ 000010AE 2D 20 20 20 20     1	        ??0031 BYTE "-         --         --         --         --         --         --         --         --         --         -", 0
+	   20 20 20 20 20
+	   2D 2D 20 20 20
+	   20 20 20 20 20
+	   20 2D 2D 20 20
+	   20 20 20 20 20
+	   20 20 2D 2D 20
+	   20 20 20 20 20
+	   20 20 20 2D 2D
+	   20 20 20 20 20
+	   20 20 20 20 2D
+	   2D 20 20 20 20
+	   20 20 20 20 20
+	   2D 2D 20 20 20
+	   20 20 20 20 20
+	   20 2D 2D 20 20
+	   20 20 20 20 20
+	   20 20 2D 2D 20
+	   20 20 20 20 20
+	   20 20 20 2D 2D
+	   20 20 20 20 20
+	   20 20 20 20 2D
+	   00
+ 0000063C		     1	    .code
+ 0000063C  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000063E  E8 00000000 E     1	        call SetTextColor
+ 00000643  52		     1	        PUSH    EDX
+ 00000644  BA 000010AE R     1	        MOV EDX, OFFSET ??0031
+ 00000649  E8 00000000 E     1	        CALL    WriteString
+ 0000064E  5A		     1	        POP EDX
+				    mGotoxy 2, 12
+ 0000064F  52		     1	    PUSH    EDX
+ 00000650  B6 0C	     1	    MOV DH, 12
+ 00000652  B2 02	     1	    MOV DL, 2
+ 00000654  E8 00000000 E     1	    CALL    Gotoxy
+ 00000659  5A		     1	    POP EDX
+				    mWrite  "-         --         --         --         --         --         --         --         --         --         -"
+ 0000111D		     1	    .data
+ 0000111D 2D 20 20 20 20     1	        ??0032 BYTE "-         --         --         --         --         --         --         --         --         --         -", 0
+	   20 20 20 20 20
+	   2D 2D 20 20 20
+	   20 20 20 20 20
+	   20 2D 2D 20 20
+	   20 20 20 20 20
+	   20 20 2D 2D 20
+	   20 20 20 20 20
+	   20 20 20 2D 2D
+	   20 20 20 20 20
+	   20 20 20 20 2D
+	   2D 20 20 20 20
+	   20 20 20 20 20
+	   2D 2D 20 20 20
+	   20 20 20 20 20
+	   20 2D 2D 20 20
+	   20 20 20 20 20
+	   20 20 2D 2D 20
+	   20 20 20 20 20
+	   20 20 20 2D 2D
+	   20 20 20 20 20
+	   20 20 20 20 2D
+	   00
+ 0000065A		     1	    .code
+ 0000065A  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000065C  E8 00000000 E     1	        call SetTextColor
+ 00000661  52		     1	        PUSH    EDX
+ 00000662  BA 0000111D R     1	        MOV EDX, OFFSET ??0032
+ 00000667  E8 00000000 E     1	        CALL    WriteString
+ 0000066C  5A		     1	        POP EDX
+				    mGotoxy 2, 13                                       
+ 0000066D  52		     1	    PUSH    EDX
+ 0000066E  B6 0D	     1	    MOV DH, 13
+ 00000670  B2 02	     1	    MOV DL, 2
+ 00000672  E8 00000000 E     1	    CALL    Gotoxy
+ 00000677  5A		     1	    POP EDX
+				    mWrite  "-         --         --         --         --         --         --         --         --         --         -"
+ 0000118C		     1	    .data
+ 0000118C 2D 20 20 20 20     1	        ??0033 BYTE "-         --         --         --         --         --         --         --         --         --         -", 0
+	   20 20 20 20 20
+	   2D 2D 20 20 20
+	   20 20 20 20 20
+	   20 2D 2D 20 20
+	   20 20 20 20 20
+	   20 20 2D 2D 20
+	   20 20 20 20 20
+	   20 20 20 2D 2D
+	   20 20 20 20 20
+	   20 20 20 20 2D
+	   2D 20 20 20 20
+	   20 20 20 20 20
+	   2D 2D 20 20 20
+	   20 20 20 20 20
+	   20 2D 2D 20 20
+	   20 20 20 20 20
+	   20 20 2D 2D 20
+	   20 20 20 20 20
+	   20 20 20 2D 2D
+	   20 20 20 20 20
+	   20 20 20 20 2D
+	   00
+ 00000678		     1	    .code
+ 00000678  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000067A  E8 00000000 E     1	        call SetTextColor
+ 0000067F  52		     1	        PUSH    EDX
+ 00000680  BA 0000118C R     1	        MOV EDX, OFFSET ??0033
+ 00000685  E8 00000000 E     1	        CALL    WriteString
+ 0000068A  5A		     1	        POP EDX
+				    mGotoxy 2, 14
+ 0000068B  52		     1	    PUSH    EDX
+ 0000068C  B6 0E	     1	    MOV DH, 14
+ 0000068E  B2 02	     1	    MOV DL, 2
+ 00000690  E8 00000000 E     1	    CALL    Gotoxy
+ 00000695  5A		     1	    POP EDX
+				    mWrite  "-         --         --         --         --         --         --         --         --         --         -"
+ 000011FB		     1	    .data
+ 000011FB 2D 20 20 20 20     1	        ??0034 BYTE "-         --         --         --         --         --         --         --         --         --         -", 0
+	   20 20 20 20 20
+	   2D 2D 20 20 20
+	   20 20 20 20 20
+	   20 2D 2D 20 20
+	   20 20 20 20 20
+	   20 20 2D 2D 20
+	   20 20 20 20 20
+	   20 20 20 2D 2D
+	   20 20 20 20 20
+	   20 20 20 20 2D
+	   2D 20 20 20 20
+	   20 20 20 20 20
+	   2D 2D 20 20 20
+	   20 20 20 20 20
+	   20 2D 2D 20 20
+	   20 20 20 20 20
+	   20 20 2D 2D 20
+	   20 20 20 20 20
+	   20 20 20 2D 2D
+	   20 20 20 20 20
+	   20 20 20 20 2D
+	   00
+ 00000696		     1	    .code
+ 00000696  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000698  E8 00000000 E     1	        call SetTextColor
+ 0000069D  52		     1	        PUSH    EDX
+ 0000069E  BA 000011FB R     1	        MOV EDX, OFFSET ??0034
+ 000006A3  E8 00000000 E     1	        CALL    WriteString
+ 000006A8  5A		     1	        POP EDX
+				    mGotoxy 2, 15                                       
+ 000006A9  52		     1	    PUSH    EDX
+ 000006AA  B6 0F	     1	    MOV DH, 15
+ 000006AC  B2 02	     1	    MOV DL, 2
+ 000006AE  E8 00000000 E     1	    CALL    Gotoxy
+ 000006B3  5A		     1	    POP EDX
+				    mWrite  "-         - --------- -         - --------- -         - --------- -         - --------- -         - --------- "
+ 0000126A		     1	    .data
+ 0000126A 2D 20 20 20 20     1	        ??0035 BYTE "-         - --------- -         - --------- -         - --------- -         - --------- -         - --------- ", 0
+	   20 20 20 20 20
+	   2D 20 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 20 2D 20 20
+	   20 20 20 20 20
+	   20 20 2D 20 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 20 2D
+	   20 20 20 20 20
+	   20 20 20 20 2D
+	   20 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   20 2D 20 20 20
+	   20 20 20 20 20
+	   20 2D 20 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 20 2D 20
+	   20 20 20 20 20
+	   20 20 20 2D 20
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 20
+	   00
+ 000006B4		     1	    .code
+ 000006B4  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000006B6  E8 00000000 E     1	        call SetTextColor
+ 000006BB  52		     1	        PUSH    EDX
+ 000006BC  BA 0000126A R     1	        MOV EDX, OFFSET ??0035
+ 000006C1  E8 00000000 E     1	        CALL    WriteString
+ 000006C6  5A		     1	        POP EDX
+				    mGotoxy 2, 16
+ 000006C7  52		     1	    PUSH    EDX
+ 000006C8  B6 10	     1	    MOV DH, 16
+ 000006CA  B2 02	     1	    MOV DL, 2
+ 000006CC  E8 00000000 E     1	    CALL    Gotoxy
+ 000006D1  5A		     1	    POP EDX
+				    mWrite  " ---------             ---------             ---------             ---------             ---------            "
+ 000012D9		     1	    .data
+ 000012D9 20 2D 2D 2D 2D     1	        ??0036 BYTE " ---------             ---------             ---------             ---------             ---------            ", 0
+	   2D 2D 2D 2D 2D
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   20 20 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 20 20 20 20
+	   20 20 20 20 20
+	   20 20 20 20 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 20 20
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   00
+ 000006D2		     1	    .code
+ 000006D2  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000006D4  E8 00000000 E     1	        call SetTextColor
+ 000006D9  52		     1	        PUSH    EDX
+ 000006DA  BA 000012D9 R     1	        MOV EDX, OFFSET ??0036
+ 000006DF  E8 00000000 E     1	        CALL    WriteString
+ 000006E4  5A		     1	        POP EDX
+
+				    mGotoxy 45, 20                                       
+ 000006E5  52		     1	    PUSH    EDX
+ 000006E6  B6 14	     1	    MOV DH, 20
+ 000006E8  B2 2D	     1	    MOV DL, 45
+ 000006EA  E8 00000000 E     1	    CALL    Gotoxy
+ 000006EF  5A		     1	    POP EDX
+				    mWrite  "----enter your name----"
+ 00001348		     1	    .data
+ 00001348 2D 2D 2D 2D 65     1	        ??0037 BYTE "----enter your name----", 0
+	   6E 74 65 72 20
+	   79 6F 75 72 20
+	   6E 61 6D 65 2D
+	   2D 2D 2D 00
+ 000006F0		     1	    .code
+ 000006F0  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000006F2  E8 00000000 E     1	        call SetTextColor
+ 000006F7  52		     1	        PUSH    EDX
+ 000006F8  BA 00001348 R     1	        MOV EDX, OFFSET ??0037
+ 000006FD  E8 00000000 E     1	        CALL    WriteString
+ 00000702  5A		     1	        POP EDX
+				    mGotoxy 45, 22
+ 00000703  52		     1	    PUSH    EDX
+ 00000704  B6 16	     1	    MOV DH, 22
+ 00000706  B2 2D	     1	    MOV DL, 45
+ 00000708  E8 00000000 E     1	    CALL    Gotoxy
+ 0000070D  5A		     1	    POP EDX
+				    mWrite  "Your Name: "
+ 00001360		     1	    .data
+ 00001360 59 6F 75 72 20     1	        ??0038 BYTE "Your Name: ", 0
+	   4E 61 6D 65 3A
+	   20 00
+ 0000070E		     1	    .code
+ 0000070E  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000710  E8 00000000 E     1	        call SetTextColor
+ 00000715  52		     1	        PUSH    EDX
+ 00000716  BA 00001360 R     1	        MOV EDX, OFFSET ??0038
+ 0000071B  E8 00000000 E     1	        CALL    WriteString
+ 00000720  5A		     1	        POP EDX
+				    mReadString playerName
+ 00000721  51		     1	    PUSH    ECX
+ 00000722  52		     1	    PUSH    EDX
+ 00000723  BA 0000020E R     1	    MOV EDX, OFFSET playerName
+ 00000728  B9 0000000E	     1	    MOV ECX, SIZEOF playerName
+ 0000072D  E8 00000000 E     1	    CALL    ReadString
+ 00000732  5A		     1	    POP EDX
+ 00000733  59		     1	    POP ECX
+				    mGotoxy 0, 0 
+ 00000734  52		     1	    PUSH    EDX
+ 00000735  B6 00	     1	    MOV DH, 0
+ 00000737  B2 00	     1	    MOV DL, 0
+ 00000739  E8 00000000 E     1	    CALL    Gotoxy
+ 0000073E  5A		     1	    POP EDX
+ 0000073F  E8 00000000 E	    call    ClrScr
+ 00000744  C3			    ret
+ 00000745			entername endp
+
+				;難易------------------------
+ 00000745			ChooseLev proc
+ 00000745  E8 FFFFF8C2		    call    PrintWalls
+				    mGotoxy 52, 7
+ 0000074A  52		     1	    PUSH    EDX
+ 0000074B  B6 07	     1	    MOV DH, 7
+ 0000074D  B2 34	     1	    MOV DL, 52
+ 0000074F  E8 00000000 E     1	    CALL    Gotoxy
+ 00000754  5A		     1	    POP EDX
+				    mWrite "Hello, "
+ 0000136C		     1	    .data
+ 0000136C 48 65 6C 6C 6F     1	        ??0039 BYTE "Hello, ", 0
+	   2C 20 00
+ 00000755		     1	    .code
+ 00000755  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000757  E8 00000000 E     1	        call SetTextColor
+ 0000075C  52		     1	        PUSH    EDX
+ 0000075D  BA 0000136C R     1	        MOV EDX, OFFSET ??0039
+ 00000762  E8 00000000 E     1	        CALL    WriteString
+ 00000767  5A		     1	        POP EDX
+				    mWriteString OFFSET playerName 
+ 00000768  B0 0F	     1	     mov al , 15 + ( 0 * 16 );改變顏色
+ 0000076A  E8 00000000 E     1	    call SetTextColor
+ 0000076F  52		     1	    PUSH    EDX
+ 00000770  BA 0000020E R     1	    MOV EDX, OFFSET OFFSET playerName
+ 00000775  E8 00000000 E     1	    CALL    WriteString
+ 0000077A  5A		     1	    POP EDX
+				    mGotoxy 40, 9
+ 0000077B  52		     1	    PUSH    EDX
+ 0000077C  B6 09	     1	    MOV DH, 9
+ 0000077E  B2 28	     1	    MOV DL, 40
+ 00000780  E8 00000000 E     1	    CALL    Gotoxy
+ 00000785  5A		     1	    POP EDX
+				    mWrite "Choose a level which you want challenge !!!"
+ 00001374		     1	    .data
+ 00001374 43 68 6F 6F 73     1	        ??003A BYTE "Choose a level which you want challenge !!!", 0
+	   65 20 61 20 6C
+	   65 76 65 6C 20
+	   77 68 69 63 68
+	   20 79 6F 75 20
+	   77 61 6E 74 20
+	   63 68 61 6C 6C
+	   65 6E 67 65 20
+	   21 21 21 00
+ 00000786		     1	    .code
+ 00000786  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000788  E8 00000000 E     1	        call SetTextColor
+ 0000078D  52		     1	        PUSH    EDX
+ 0000078E  BA 00001374 R     1	        MOV EDX, OFFSET ??003A
+ 00000793  E8 00000000 E     1	        CALL    WriteString
+ 00000798  5A		     1	        POP EDX
+				;難度(速度)選擇----------------------
+ 00000799			 L1:
+				    mGotoxy 48, 11
+ 00000799  52		     1	    PUSH    EDX
+ 0000079A  B6 0B	     1	    MOV DH, 11
+ 0000079C  B2 30	     1	    MOV DL, 48
+ 0000079E  E8 00000000 E     1	    CALL    Gotoxy
+ 000007A3  5A		     1	    POP EDX
+				    mWrite  "----LEVEL Table----" 
+ 000013A0		     1	    .data
+ 000013A0 2D 2D 2D 2D 4C     1	        ??003B BYTE "----LEVEL Table----", 0
+	   45 56 45 4C 20
+	   54 61 62 6C 65
+	   2D 2D 2D 2D 00
+ 000007A4		     1	    .code
+ 000007A4  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000007A6  E8 00000000 E     1	        call SetTextColor
+ 000007AB  52		     1	        PUSH    EDX
+ 000007AC  BA 000013A0 R     1	        MOV EDX, OFFSET ??003B
+ 000007B1  E8 00000000 E     1	        CALL    WriteString
+ 000007B6  5A		     1	        POP EDX
+				    mGotoxy 48, 13 
+ 000007B7  52		     1	    PUSH    EDX
+ 000007B8  B6 0D	     1	    MOV DH, 13
+ 000007BA  B2 30	     1	    MOV DL, 48
+ 000007BC  E8 00000000 E     1	    CALL    Gotoxy
+ 000007C1  5A		     1	    POP EDX
+				    mWrite  "(0) Level_0 : Easy"    
+ 000013B4		     1	    .data
+ 000013B4 28 30 29 20 4C     1	        ??003C BYTE "(0) Level_0 : Easy", 0
+	   65 76 65 6C 5F
+	   30 20 3A 20 45
+	   61 73 79 00
+ 000007C2		     1	    .code
+ 000007C2  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000007C4  E8 00000000 E     1	        call SetTextColor
+ 000007C9  52		     1	        PUSH    EDX
+ 000007CA  BA 000013B4 R     1	        MOV EDX, OFFSET ??003C
+ 000007CF  E8 00000000 E     1	        CALL    WriteString
+ 000007D4  5A		     1	        POP EDX
+				    mGotoxy 48, 15 
+ 000007D5  52		     1	    PUSH    EDX
+ 000007D6  B6 0F	     1	    MOV DH, 15
+ 000007D8  B2 30	     1	    MOV DL, 48
+ 000007DA  E8 00000000 E     1	    CALL    Gotoxy
+ 000007DF  5A		     1	    POP EDX
+				    mWrite  "(1) Level_1 : Normal"
+ 000013C7		     1	    .data
+ 000013C7 28 31 29 20 4C     1	        ??003D BYTE "(1) Level_1 : Normal", 0
+	   65 76 65 6C 5F
+	   31 20 3A 20 4E
+	   6F 72 6D 61 6C
+	   00
+ 000007E0		     1	    .code
+ 000007E0  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000007E2  E8 00000000 E     1	        call SetTextColor
+ 000007E7  52		     1	        PUSH    EDX
+ 000007E8  BA 000013C7 R     1	        MOV EDX, OFFSET ??003D
+ 000007ED  E8 00000000 E     1	        CALL    WriteString
+ 000007F2  5A		     1	        POP EDX
+				    mGotoxy 48, 17 
+ 000007F3  52		     1	    PUSH    EDX
+ 000007F4  B6 11	     1	    MOV DH, 17
+ 000007F6  B2 30	     1	    MOV DL, 48
+ 000007F8  E8 00000000 E     1	    CALL    Gotoxy
+ 000007FD  5A		     1	    POP EDX
+				    mWrite  "(2) Level_2 : Medium"
+ 000013DC		     1	    .data
+ 000013DC 28 32 29 20 4C     1	        ??003E BYTE "(2) Level_2 : Medium", 0
+	   65 76 65 6C 5F
+	   32 20 3A 20 4D
+	   65 64 69 75 6D
+	   00
+ 000007FE		     1	    .code
+ 000007FE  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000800  E8 00000000 E     1	        call SetTextColor
+ 00000805  52		     1	        PUSH    EDX
+ 00000806  BA 000013DC R     1	        MOV EDX, OFFSET ??003E
+ 0000080B  E8 00000000 E     1	        CALL    WriteString
+ 00000810  5A		     1	        POP EDX
+				    mGotoxy 48, 19
+ 00000811  52		     1	    PUSH    EDX
+ 00000812  B6 13	     1	    MOV DH, 19
+ 00000814  B2 30	     1	    MOV DL, 48
+ 00000816  E8 00000000 E     1	    CALL    Gotoxy
+ 0000081B  5A		     1	    POP EDX
+				    mWrite  "(3) Level_3 : Hard"
+ 000013F1		     1	    .data
+ 000013F1 28 33 29 20 4C     1	        ??003F BYTE "(3) Level_3 : Hard", 0
+	   65 76 65 6C 5F
+	   33 20 3A 20 48
+	   61 72 64 00
+ 0000081C		     1	    .code
+ 0000081C  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000081E  E8 00000000 E     1	        call SetTextColor
+ 00000823  52		     1	        PUSH    EDX
+ 00000824  BA 000013F1 R     1	        MOV EDX, OFFSET ??003F
+ 00000829  E8 00000000 E     1	        CALL    WriteString
+ 0000082E  5A		     1	        POP EDX
+				    mGotoxy 48, 21
+ 0000082F  52		     1	    PUSH    EDX
+ 00000830  B6 15	     1	    MOV DH, 21
+ 00000832  B2 30	     1	    MOV DL, 48
+ 00000834  E8 00000000 E     1	    CALL    Gotoxy
+ 00000839  5A		     1	    POP EDX
+				    mWrite  "Your selection is  "
+ 00001404		     1	    .data
+ 00001404 59 6F 75 72 20     1	        ??0040 BYTE "Your selection is  ", 0
+	   73 65 6C 65 63
+	   74 69 6F 6E 20
+	   69 73 20 20 00
+ 0000083A		     1	    .code
+ 0000083A  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000083C  E8 00000000 E     1	        call SetTextColor
+ 00000841  52		     1	        PUSH    EDX
+ 00000842  BA 00001404 R     1	        MOV EDX, OFFSET ??0040
+ 00000847  E8 00000000 E     1	        CALL    WriteString
+ 0000084C  5A		     1	        POP EDX
+
+ 0000084D  E8 00000000 E	    call    ReadChar    ;讀取選擇
+ 00000852  A2 0000020D R	    mov choice, AL                                      
+ 00000857  E8 00000000 E	    call    WriteChar
+
+				    ;判斷選擇
+				    .if choice == '0'
+ 00000865  C7 05 00000208 R	        mov speed, 150
+	   00000096
+				    .elseif choice == '1'
+ 0000087A  C7 05 00000208 R	        mov speed, 100
+	   00000064
+				    .elseif choice == '2'
+ 0000088F  C7 05 00000208 R	        mov speed, 75
+	   0000004B
+				    .elseif choice == '3'
+ 000008A4  C7 05 00000208 R	        mov speed, 50
+	   00000032
+				    .else
+				        INVOKE  Sleep, 100
+				        mGotoxy 0, 0                                    
+ 000008B7  52		     1	    PUSH    EDX
+ 000008B8  B6 00	     1	    MOV DH, 0
+ 000008BA  B2 00	     1	    MOV DL, 0
+ 000008BC  E8 00000000 E     1	    CALL    Gotoxy
+ 000008C1  5A		     1	    POP EDX
+ 000008C2  E8 00000000 E	        call    ClrScr
+				        mGotoxy 40, 9
+ 000008C7  52		     1	    PUSH    EDX
+ 000008C8  B6 09	     1	    MOV DH, 9
+ 000008CA  B2 28	     1	    MOV DL, 40
+ 000008CC  E8 00000000 E     1	    CALL    Gotoxy
+ 000008D1  5A		     1	    POP EDX
+				        mWriteString offset wrong
+ 000008D2  B0 0F	     1	     mov al , 15 + ( 0 * 16 );改變顏色
+ 000008D4  E8 00000000 E     1	    call SetTextColor
+ 000008D9  52		     1	    PUSH    EDX
+ 000008DA  BA 0000022E R     1	    MOV EDX, OFFSET offset wrong
+ 000008DF  E8 00000000 E     1	    CALL    WriteString
+ 000008E4  5A		     1	    POP EDX
+ 000008E5  E8 FFFFF722		        call    PrintWalls
+ 000008EA  E9 FFFFFEAA		        jmp L1
+				    .endif
+				    INVOKE  Sleep, 100
+				    mGotoxy 0, 0                                    
+ 000008F6  52		     1	    PUSH    EDX
+ 000008F7  B6 00	     1	    MOV DH, 0
+ 000008F9  B2 00	     1	    MOV DL, 0
+ 000008FB  E8 00000000 E     1	    CALL    Gotoxy
+ 00000900  5A		     1	    POP EDX
+ 00000901  E8 00000000 E	    call    ClrScr      ;跳出主選單
+
+ 00000906  C3			    ret
+ 00000907			ChooseLev endp
+
+				;顯示玩家資訊----------------
+ 00000907			drawHUD PROC                                            
+				;玩家名----------------------------                                                                                                    
+				    mGotoxy 2, 0
+ 00000907  52		     1	    PUSH    EDX
+ 00000908  B6 00	     1	    MOV DH, 0
+ 0000090A  B2 02	     1	    MOV DL, 2
+ 0000090C  E8 00000000 E     1	    CALL    Gotoxy
+ 00000911  5A		     1	    POP EDX
+				    mWrite  "Name: "
+ 00001418		     1	    .data
+ 00001418 4E 61 6D 65 3A     1	        ??0041 BYTE "Name: ", 0
+	   20 00
+ 00000912		     1	    .code
+ 00000912  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000914  E8 00000000 E     1	        call SetTextColor
+ 00000919  52		     1	        PUSH    EDX
+ 0000091A  BA 00001418 R     1	        MOV EDX, OFFSET ??0041
+ 0000091F  E8 00000000 E     1	        CALL    WriteString
+ 00000924  5A		     1	        POP EDX
+				    mWriteString offset playerName 
+ 00000925  B0 0F	     1	     mov al , 15 + ( 0 * 16 );改變顏色
+ 00000927  E8 00000000 E     1	    call SetTextColor
+ 0000092C  52		     1	    PUSH    EDX
+ 0000092D  BA 0000020E R     1	    MOV EDX, OFFSET offset playerName
+ 00000932  E8 00000000 E     1	    CALL    WriteString
+ 00000937  5A		     1	    POP EDX
+				;----------------------------------
+				;難易度----------------------------
+				    mGotoxy 20, 0
+ 00000938  52		     1	    PUSH    EDX
+ 00000939  B6 00	     1	    MOV DH, 0
+ 0000093B  B2 14	     1	    MOV DL, 20
+ 0000093D  E8 00000000 E     1	    CALL    Gotoxy
+ 00000942  5A		     1	    POP EDX
+				    mWrite "Level: "
+ 0000141F		     1	    .data
+ 0000141F 4C 65 76 65 6C     1	        ??0042 BYTE "Level: ", 0
+	   3A 20 00
+ 00000943		     1	    .code
+ 00000943  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000945  E8 00000000 E     1	        call SetTextColor
+ 0000094A  52		     1	        PUSH    EDX
+ 0000094B  BA 0000141F R     1	        MOV EDX, OFFSET ??0042
+ 00000950  E8 00000000 E     1	        CALL    WriteString
+ 00000955  5A		     1	        POP EDX
+				    .if choice == '0'
+				        mWrite "Easy"
+ 00001427		     1	    .data
+ 00001427 45 61 73 79 00     1	        ??0043 BYTE "Easy", 0
+ 0000095F		     1	    .code
+ 0000095F  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000961  E8 00000000 E     1	        call SetTextColor
+ 00000966  52		     1	        PUSH    EDX
+ 00000967  BA 00001427 R     1	        MOV EDX, OFFSET ??0043
+ 0000096C  E8 00000000 E     1	        CALL    WriteString
+ 00000971  5A		     1	        POP EDX
+				    .elseif choice == '1'
+				        mWrite "Normal"
+ 0000142C		     1	    .data
+ 0000142C 4E 6F 72 6D 61     1	        ??0044 BYTE "Normal", 0
+	   6C 00
+ 0000097D		     1	    .code
+ 0000097D  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000097F  E8 00000000 E     1	        call SetTextColor
+ 00000984  52		     1	        PUSH    EDX
+ 00000985  BA 0000142C R     1	        MOV EDX, OFFSET ??0044
+ 0000098A  E8 00000000 E     1	        CALL    WriteString
+ 0000098F  5A		     1	        POP EDX
+				    .elseif choice == '2'
+				        mWrite "Medium"
+ 00001433		     1	    .data
+ 00001433 4D 65 64 69 75     1	        ??0045 BYTE "Medium", 0
+	   6D 00
+ 0000099B		     1	    .code
+ 0000099B  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000099D  E8 00000000 E     1	        call SetTextColor
+ 000009A2  52		     1	        PUSH    EDX
+ 000009A3  BA 00001433 R     1	        MOV EDX, OFFSET ??0045
+ 000009A8  E8 00000000 E     1	        CALL    WriteString
+ 000009AD  5A		     1	        POP EDX
+				    .else
+				        mWrite "Hard"
+ 0000143A		     1	    .data
+ 0000143A 48 61 72 64 00     1	        ??0046 BYTE "Hard", 0
+ 000009B0		     1	    .code
+ 000009B0  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000009B2  E8 00000000 E     1	        call SetTextColor
+ 000009B7  52		     1	        PUSH    EDX
+ 000009B8  BA 0000143A R     1	        MOV EDX, OFFSET ??0046
+ 000009BD  E8 00000000 E     1	        CALL    WriteString
+ 000009C2  5A		     1	        POP EDX
+				    .endif
+				    mGotoxy 40, 0
+ 000009C3  52		     1	    PUSH    EDX
+ 000009C4  B6 00	     1	    MOV DH, 0
+ 000009C6  B2 28	     1	    MOV DL, 40
+ 000009C8  E8 00000000 E     1	    CALL    Gotoxy
+ 000009CD  5A		     1	    POP EDX
+				    mWrite "Score: "
+ 0000143F		     1	    .data
+ 0000143F 53 63 6F 72 65     1	        ??0047 BYTE "Score: ", 0
+	   3A 20 00
+ 000009CE		     1	    .code
+ 000009CE  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000009D0  E8 00000000 E     1	        call SetTextColor
+ 000009D5  52		     1	        PUSH    EDX
+ 000009D6  BA 0000143F R     1	        MOV EDX, OFFSET ??0047
+ 000009DB  E8 00000000 E     1	        CALL    WriteString
+ 000009E0  5A		     1	        POP EDX
+ 000009E1  A1 00000000 R	    mov eax, score
+ 000009E6  E8 00000000 E	    call writedec
+				;-----------------------------------
+ 000009EB  C3			    ret
+ 000009EC			drawHUD ENDP
+
+				;食物------------------------
+ 000009EC			createfood proc
+ 000009EC  E8 00000000 E	    call Randomize
+				;食物的x座標---------------------------
+ 000009F1  E8 00000000 E	    call random32       
+ 000009F6  33 D2		    xor edx, edx
+ 000009F8  B9 00000071		    mov ecx, maxX - 2
+ 000009FD  F7 F1		    div ecx
+ 000009FF  80 C2 02		    add dl, 2
+ 00000A02  88 15 00000008 R	    mov foodPoint.x, dl
+				;-------------------------------------
+				;食物的y座標---------------------------
+ 00000A08  E8 00000000 E	    call random32       
+ 00000A0D  BA 00000000		    mov edx, 0
+ 00000A12  B9 0000001A		    mov ecx, maxY - 2
+ 00000A17  F7 F1		    div ecx
+ 00000A19  80 C2 02		    add dl, 2
+ 00000A1C  88 15 00000009 R	    mov foodPoint.y, dl
+				;-------------------------------------
+				;將指標移至新的隨機座標-----------------
+				    mGotoxy foodPoint.x, foodPoint.y
+ 00000A22  52		     1	    PUSH    EDX
+ 00000A23  8A 35 00000009 R  1	    MOV DH, foodPoint.y
+ 00000A29  8A 15 00000008 R  1	    MOV DL, foodPoint.x
+ 00000A2F  E8 00000000 E     1	    CALL    Gotoxy
+ 00000A34  5A		     1	    POP EDX
+				;-------------------------------------
+				;5 kinds of foods & random & show-----
+ 00000A35  B8 00000005		    mov eax, 5 
+ 00000A3A  E8 00000000 E	    call randomrange 
+ 00000A3F  A3 00000224 R	    mov foodrandomnum, eax
+				    .if eax == 0
+ 00000A48  B8 00000090		        mov eax, black (9 * 16);blue
+ 00000A4D  E8 00000000 E	        call settextcolor
+ 00000A52  A0 0000021E R	        mov al, foodChar0
+ 00000A57  E8 00000000 E	        call writechar
+ 00000A5C  C3			        ret
+				    .elseif eax == 1
+ 00000A64  B8 000000C0		        mov eax, black (12 * 16);red
+ 00000A69  E8 00000000 E	        call settextcolor
+ 00000A6E  A0 0000021F R	        mov al, foodChar1
+ 00000A73  E8 00000000 E	        call writechar
+ 00000A78  C3			        ret
+				    .elseif eax == 2
+ 00000A80  B8 00000060		        mov eax, black (6 * 16);yellow
+ 00000A85  E8 00000000 E	        call settextcolor
+ 00000A8A  A0 00000220 R	        mov al, foodChar2
+ 00000A8F  E8 00000000 E	        call writechar
+ 00000A94  C3			        ret
+				    .elseif eax == 3
+ 00000A9C  B8 000000A0		        mov eax, black (10 * 16);green
+ 00000AA1  E8 00000000 E	        call settextcolor
+ 00000AA6  A0 00000221 R	        mov al, foodChar3
+ 00000AAB  E8 00000000 E	        call writechar
+ 00000AB0  C3			        ret
+				    .elseif eax == 4
+ 00000AB8  B8 00000070		        mov eax, black (7 * 16);gray
+ 00000ABD  E8 00000000 E	        call settextcolor
+ 00000AC2  A0 00000222 R	        mov al, foodChar4
+ 00000AC7  E8 00000000 E	        call writechar
+ 00000ACC  C3			        ret
+				    .endif
+				;-------------------------------------
+ 00000ACD			createfood endp
+
+				;增長------------------------
+ 00000ACD			grow proc
+				    ;判斷是否有吃到食物
+ 00000ACD  8A 25 0000021C R	    mov ah, currentX
+ 00000AD3  A0 0000021D R	    mov al, currentY
+				    .if ah == FoodPoint.x && al ==  FoodPoint.y
+				        .if foodrandomnum == 0
+ 00000AF9  C6 05 00000223 R	            mov foodnum, 0
+	   00
+ 00000B00  E8 FFFFFEE7		            call createfood ;產生新的食物
+ 00000B05  FE 05 00000228 R	            inc headIndex   ;增加蛇的長度
+ 00000B0B  FF 05 00000000 R	            inc score
+				        .elseif foodrandomnum == 1
+ 00000B1F  C6 05 00000223 R	            mov foodnum, 1
+	   01
+ 00000B26  E8 FFFFFEC1		            call createfood ;產生新的食物
+ 00000B2B  FE 05 00000228 R	            inc headIndex   ;增加蛇的長度
+ 00000B31  FF 05 00000000 R	            inc score
+				        .elseif foodrandomnum == 2
+ 00000B42  C6 05 00000223 R	            mov foodnum, 2
+	   02
+ 00000B49  E8 FFFFFE9E		            call createfood ;產生新的食物
+ 00000B4E  FE 05 00000228 R	            inc headIndex   ;增加蛇的長度
+ 00000B54  FF 05 00000000 R	            inc score
+				        .elseif foodrandomnum == 3
+ 00000B65  C6 05 00000223 R	            mov foodnum, 3
+	   03
+ 00000B6C  E8 FFFFFE7B		            call createfood ;產生新的食物
+ 00000B71  FE 05 00000228 R	            inc headIndex   ;增加蛇的長度
+ 00000B77  FF 05 00000000 R	            inc score
+				        .elseif foodrandomnum == 4
+ 00000B88  C6 05 00000223 R	            mov foodnum, 4
+	   04
+ 00000B8F  E8 FFFFFE58		            call createfood ;產生新的食物
+ 00000B94  FE 05 00000228 R	            inc headIndex   ;增加蛇的長度
+ 00000B9A  FF 05 00000000 R	            inc score
+				        .endif
+				    .endif
+ 00000BA0  C3			    ret
+ 00000BA1			grow endp
+
+ 00000BA1			SetDirection PROC, R:BYTE, L:BYTE, U:BYTE, D:BYTE
+ 00000BA4  8A 55 08		    mov dl, R
+ 00000BA7  88 15 0000022B R	    mov RIGHT, dl
+
+ 00000BAD  8A 55 0C		    mov dl, L
+ 00000BB0  88 15 0000022A R	    mov LEFT, dl
+
+ 00000BB6  8A 55 10		    mov dl, U
+ 00000BB9  88 15 0000022C R	    mov UP, dl
+
+ 00000BBF  8A 55 14		    mov dl, D
+ 00000BC2  88 15 0000022D R	    mov DOWN, dl
+				    
+				    ret
+ 00000BCC			SetDirection ENDP
+				;---------------------------
+				;輸入方向--------------------
+ 00000BCC			presskey proc
+				;press down ?--------------------
+ 00000BCC			ddown:
+ 00000BCC  B4 00		     MOV AH, 0
+				        INVOKE GetKeyState, VK_DOWN                  
+				        .if ah == 0 || currentY >= maxY
+ 00000BE2  EB 16		            jmp uup
+				    .else
+ 00000BE6  FE 05 0000021D R	        inc currentY
+				        invoke SetDirection,  0, 0, 0, 1
+				    .endif                       
+ 00000BF9  C3			     RET
+				;--------------------------------
+				;press up ?--------------------
+ 00000BFA			uup:
+ 00000BFA  B4 00		    mov ah, 0
+				    invoke  GetKeyState, VK_UP
+				    .if ah == 0 || currentY <= 0
+ 00000C10  EB 16		        jmp lleft
+				    .else
+ 00000C14  FE 0D 0000021D R	        dec currentY
+				        invoke SetDirection, 0, 0, 1, 0
+				    .endif
+ 00000C27  C3			    ret
+				;--------------------------------
+				;press left ?--------------------
+ 00000C28			lleft:
+ 00000C28  B4 00		    mov ah, 0
+				    invoke  GetKeyState, VK_LEFT
+				    .if ah == 0 || currentX <= 0
+ 00000C3E  EB 16		        jmp rright
+				    .else
+ 00000C42  FE 0D 0000021C R	        dec currentX
+				        invoke SetDirection, 0, 1, 0, 0
+				    .endif
+ 00000C55  C3			    ret
+				;---------------------------------
+				;press right ?--------------------
+ 00000C56			rright:
+ 00000C56  B4 00		    mov ah, 0
+				    invoke  GetKeyState, VK_RIGHT
+				    .if ah == 0 || currentY >= maxY
+ 00000C6C  EB 16		        jmp rightpress
+				    .else
+ 00000C70  FE 05 0000021C R	        inc currentX
+				        invoke SetDirection, 1, 0, 0, 0
+				    .endif
+ 00000C83  C3			    ret
+				;--------------------------------
+				;right is press------------------
+ 00000C84			rightpress:
+				    .if RIGHT == 0 || currentX >=  maxX
+ 00000C96  EB 08		        jmp leftpress
+				    .else
+ 00000C9A  FE 05 0000021C R	        inc currentX
+				    .endif
+				;--------------------------------
+				;left is press------------------
+ 00000CA0			leftpress:
+				    .if LEFT == 0 || currentX <=  0
+ 00000CB2  EB 08		        jmp uppress
+				    .else
+ 00000CB6  FE 0D 0000021C R	        dec currentX
+				    .endif
+				;--------------------------------
+				;up is press------------------
+ 00000CBC			uppress:
+				    .if UP == 0 || currentY <=  0
+ 00000CCE  EB 08		        jmp downpress
+				    .else
+ 00000CD2  FE 0D 0000021D R	        dec currentY
+				    .endif
+				;--------------------------------
+				;down is press------------------
+ 00000CD8			downpress:
+				    .if DOWN == 0 || currentY >=  maxY
+ 00000CEA  EB 08		        jmp breakk
+				    .else
+ 00000CEE  FE 05 0000021D R	        inc currentY
+				    .endif
+				;--------------------------------
+ 00000CF4			breakk:
+ 00000CF4  C3			    ret 
+ 00000CF5			presskey endp
+
+				;撞牆?----------------------
+ 00000CF5			IsCollision proc
+				;是否碰到邊界----------------------
+				    .if currentX == 0        ;left
+ 00000CFE  EB 2B		        jmp L1
+				    .elseif currentY == 1    ;up
+ 00000D0B  EB 1E		        jmp L1
+				    .elseif currentX == maxX ;right
+ 00000D18  EB 11		        jmp L1
+				    .elseif currentY == maxY ;down
+ 00000D25  EB 04		        jmp L1
+				    .else 
+ 00000D29  EB 06		        jmp L2
+				    .endif
+				;---------------------------------
+				;gameover?------------------------
+ 00000D2B			L1: 
+ 00000D2B  B8 00000001		    mov eax, 1
+ 00000D30  C3			    ret
+ 00000D31			L2: 
+ 00000D31  B8 00000000		    mov eax, 0
+ 00000D36  C3			    ret
+				;---------------------------------
+ 00000D37			IsCollision endp
+
+				;move蛇---------------------
+ 00000D37			movesnake proc
+ 00000D37  B9 00000000		    mov ecx, 0
+ 00000D3C  8A 0D 00000228 R	    mov cl, headIndex ;snake's head
+				;load x and y----------------
+ 00000D42  A0 0000021C R	    mov al, currentX
+ 00000D47  8A 25 0000021D R	    mov ah, currentY
+				;----------------------------
+				;load new x, y for snake new body
+ 00000D4D  88 04 4D		    mov Snakebody[2 * ecx].x, al
+	   0000000A R
+ 00000D54  88 24 4D		    mov Snakebody[2 * ecx].y, ah
+	   0000000B R
+				;--------------------------------
+				    mGotoxy Snakebody[2 * ecx].x, Snakebody[2 * ecx].y
+ 00000D5B  52		     1	    PUSH    EDX
+ 00000D5C  8A 34 4D	     1	    MOV DH, Snakebody[2 * ecx].y
+	   0000000B R
+ 00000D63  8A 14 4D	     1	    MOV DL, Snakebody[2 * ecx].x
+	   0000000A R
+ 00000D6A  E8 00000000 E     1	    CALL    Gotoxy
+ 00000D6F  5A		     1	    POP EDX
+				;snake body---------------------
+				    .if foodnum == 0
+ 00000D79  B8 00000090		        mov eax, black (9 * 16)
+ 00000D7E  E8 00000000 E	        call settextcolor
+ 00000D83  A0 0000021E R	        mov al, foodChar0
+				    .elseif foodnum == 1
+ 00000D93  B8 000000C0		        mov eax, black (12 * 16)
+ 00000D98  E8 00000000 E	        call settextcolor
+ 00000D9D  A0 0000021F R	        mov al, foodChar1
+				    .elseif foodnum == 2
+ 00000DAD  B8 00000060		        mov eax, black (6 * 16)
+ 00000DB2  E8 00000000 E	        call settextcolor
+ 00000DB7  A0 00000220 R	        mov al, foodChar2
+				    .elseif foodnum == 3
+ 00000DC7  B8 000000A0		        mov eax, black (10 * 16)
+ 00000DCC  E8 00000000 E	        call settextcolor
+ 00000DD1  A0 00000221 R	        mov al, foodChar3
+				    .elseif foodnum == 4
+ 00000DE1  B8 00000070		        mov eax, black (7 * 16)
+ 00000DE6  E8 00000000 E	        call settextcolor
+ 00000DEB  A0 00000222 R	        mov al, foodChar4
+				    .else 
+ 00000DF2  A0 0000020C R	        mov al, snake
+				    .endif
+
+ 00000DF7  E8 00000000 E	    call writeChar
+				    INVOKE  Sleep, speed
+				;-------------------------------
+ 00000E07  B9 00000000		    mov ecx, 0  
+ 00000E0C  8A 0D 00000229 R	    mov cl, tailIndex
+ 00000E12  80 3C 4D		    cmp SnakeBody[2 * ecx].x, 0;貪食蛇的尾巴位置印出
+	   0000000A R 00
+ 00000E1A  74 28		    JE  L1 
+				    mGotoxy SnakeBody[2 * ecx].x, SnakeBody[2 * ecx].y
+ 00000E1C  52		     1	    PUSH    EDX
+ 00000E1D  8A 34 4D	     1	    MOV DH, SnakeBody[2 * ecx].y
+	   0000000B R
+ 00000E24  8A 14 4D	     1	    MOV DL, SnakeBody[2 * ecx].x
+	   0000000A R
+ 00000E2B  E8 00000000 E     1	    CALL    Gotoxy
+ 00000E30  5A		     1	    POP EDX
+				    mWrite  " "
+ 00001447		     1	    .data
+ 00001447 20 00		     1	        ??0048 BYTE " ", 0
+ 00000E31		     1	    .code
+ 00000E31  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000E33  E8 00000000 E     1	        call SetTextColor
+ 00000E38  52		     1	        PUSH    EDX
+ 00000E39  BA 00001447 R     1	        MOV EDX, OFFSET ??0048
+ 00000E3E  E8 00000000 E     1	        CALL    WriteString
+ 00000E43  5A		     1	        POP EDX
+				    
+ 00000E44			L1:
+ 00000E44  FE 05 00000229 R	    inc tailIndex
+ 00000E4A  FE 05 00000228 R	    inc headIndex
+ 00000E50  80 3D 00000229 R	    cmp tailIndex, maxSize
+	   FF
+ 00000E57  75 07		    jne L2
+ 00000E59  C6 05 00000229 R	    mov tailIndex, 0
+	   00
+
+ 00000E60			L2:
+ 00000E60  80 3D 00000228 R	    cmp headIndex, maxSize ; 讀取當前貪食蛇最大長度
+	   FF
+ 00000E67  75 07		    jne L3
+ 00000E69  C6 05 00000228 R	    mov headIndex, 0
+	   00
+
+ 00000E70			L3:
+ 00000E70  C3			    ret
+ 00000E71			movesnake endp
+
+ 00000E71			bonus proc
+ 00000E71  E8 00000000 E	    call    ClrScr
+ 00000E76  E8 FFFFF191		    call    PrintWalls
+				    mGotoxy 27, 2                                        
+ 00000E7B  52		     1	    PUSH    EDX
+ 00000E7C  B6 02	     1	    MOV DH, 2
+ 00000E7E  B2 1B	     1	    MOV DL, 27
+ 00000E80  E8 00000000 E     1	    CALL    Gotoxy
+ 00000E85  5A		     1	    POP EDX
+				    mWrite  "________    _________  ____        __  __      __    _________"
+ 00001449		     1	    .data
+ 00001449 5F 5F 5F 5F 5F     1	        ??0049 BYTE "________    _________  ____        __  __      __    _________", 0
+	   5F 5F 5F 20 20
+	   20 20 5F 5F 5F
+	   5F 5F 5F 5F 5F
+	   5F 20 20 5F 5F
+	   5F 5F 20 20 20
+	   20 20 20 20 20
+	   5F 5F 20 20 5F
+	   5F 20 20 20 20
+	   20 20 5F 5F 20
+	   20 20 20 5F 5F
+	   5F 5F 5F 5F 5F
+	   5F 5F 00
+ 00000E86		     1	    .code
+ 00000E86  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000E88  E8 00000000 E     1	        call SetTextColor
+ 00000E8D  52		     1	        PUSH    EDX
+ 00000E8E  BA 00001449 R     1	        MOV EDX, OFFSET ??0049
+ 00000E93  E8 00000000 E     1	        CALL    WriteString
+ 00000E98  5A		     1	        POP EDX
+				    mGotoxy 27, 3                                        
+ 00000E99  52		     1	    PUSH    EDX
+ 00000E9A  B6 03	     1	    MOV DH, 3
+ 00000E9C  B2 1B	     1	    MOV DL, 27
+ 00000E9E  E8 00000000 E     1	    CALL    Gotoxy
+ 00000EA3  5A		     1	    POP EDX
+				    mWrite  "| _____ \  / _______ \ |   \      | |  | |     | |  /  _______\"  
+ 00001488		     1	    .data
+ 00001488 7C 20 5F 5F 5F     1	        ??004A BYTE "| _____ \  / _______ \ |   \      | |  | |     | |  /  _______\", 0
+	   5F 5F 20 5C 20
+	   20 2F 20 5F 5F
+	   5F 5F 5F 5F 5F
+	   20 5C 20 7C 20
+	   20 20 5C 20 20
+	   20 20 20 20 7C
+	   20 7C 20 20 7C
+	   20 7C 20 20 20
+	   20 20 7C 20 7C
+	   20 20 2F 20 20
+	   5F 5F 5F 5F 5F
+	   5F 5F 5C 00
+ 00000EA4		     1	    .code
+ 00000EA4  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000EA6  E8 00000000 E     1	        call SetTextColor
+ 00000EAB  52		     1	        PUSH    EDX
+ 00000EAC  BA 00001488 R     1	        MOV EDX, OFFSET ??004A
+ 00000EB1  E8 00000000 E     1	        CALL    WriteString
+ 00000EB6  5A		     1	        POP EDX
+				    mGotoxy 27, 4 
+ 00000EB7  52		     1	    PUSH    EDX
+ 00000EB8  B6 04	     1	    MOV DH, 4
+ 00000EBA  B2 1B	     1	    MOV DL, 27
+ 00000EBC  E8 00000000 E     1	    CALL    Gotoxy
+ 00000EC1  5A		     1	    POP EDX
+				    mWrite  "| |    \ \ | |     | | | |\ \     | |  | |     | |  | |"
+ 000014C8		     1	    .data
+ 000014C8 7C 20 7C 20 20     1	        ??004B BYTE "| |    \ \ | |     | | | |\ \     | |  | |     | |  | |", 0
+	   20 20 5C 20 5C
+	   20 7C 20 7C 20
+	   20 20 20 20 7C
+	   20 7C 20 7C 20
+	   7C 5C 20 5C 20
+	   20 20 20 20 7C
+	   20 7C 20 20 7C
+	   20 7C 20 20 20
+	   20 20 7C 20 7C
+	   20 20 7C 20 7C
+	   00
+ 00000EC2		     1	    .code
+ 00000EC2  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000EC4  E8 00000000 E     1	        call SetTextColor
+ 00000EC9  52		     1	        PUSH    EDX
+ 00000ECA  BA 000014C8 R     1	        MOV EDX, OFFSET ??004B
+ 00000ECF  E8 00000000 E     1	        CALL    WriteString
+ 00000ED4  5A		     1	        POP EDX
+				    mGotoxy 27, 5
+ 00000ED5  52		     1	    PUSH    EDX
+ 00000ED6  B6 05	     1	    MOV DH, 5
+ 00000ED8  B2 1B	     1	    MOV DL, 27
+ 00000EDA  E8 00000000 E     1	    CALL    Gotoxy
+ 00000EDF  5A		     1	    POP EDX
+				    mWrite  "| |    / / | |     | | | | \ \    | |  | |     | |  | |"
+ 00001500		     1	    .data
+ 00001500 7C 20 7C 20 20     1	        ??004C BYTE "| |    / / | |     | | | | \ \    | |  | |     | |  | |", 0
+	   20 20 2F 20 2F
+	   20 7C 20 7C 20
+	   20 20 20 20 7C
+	   20 7C 20 7C 20
+	   7C 20 5C 20 5C
+	   20 20 20 20 7C
+	   20 7C 20 20 7C
+	   20 7C 20 20 20
+	   20 20 7C 20 7C
+	   20 20 7C 20 7C
+	   00
+ 00000EE0		     1	    .code
+ 00000EE0  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000EE2  E8 00000000 E     1	        call SetTextColor
+ 00000EE7  52		     1	        PUSH    EDX
+ 00000EE8  BA 00001500 R     1	        MOV EDX, OFFSET ??004C
+ 00000EED  E8 00000000 E     1	        CALL    WriteString
+ 00000EF2  5A		     1	        POP EDX
+				    mGotoxy 27, 6
+ 00000EF3  52		     1	    PUSH    EDX
+ 00000EF4  B6 06	     1	    MOV DH, 6
+ 00000EF6  B2 1B	     1	    MOV DL, 27
+ 00000EF8  E8 00000000 E     1	    CALL    Gotoxy
+ 00000EFD  5A		     1	    POP EDX
+				    mWrite  "| |   / /  | |     | | | |  \ \   | |  | |     | |  | |_______"
+ 00001538		     1	    .data
+ 00001538 7C 20 7C 20 20     1	        ??004D BYTE "| |   / /  | |     | | | |  \ \   | |  | |     | |  | |_______", 0
+	   20 2F 20 2F 20
+	   20 7C 20 7C 20
+	   20 20 20 20 7C
+	   20 7C 20 7C 20
+	   7C 20 20 5C 20
+	   5C 20 20 20 7C
+	   20 7C 20 20 7C
+	   20 7C 20 20 20
+	   20 20 7C 20 7C
+	   20 20 7C 20 7C
+	   5F 5F 5F 5F 5F
+	   5F 5F 00
+ 00000EFE		     1	    .code
+ 00000EFE  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000F00  E8 00000000 E     1	        call SetTextColor
+ 00000F05  52		     1	        PUSH    EDX
+ 00000F06  BA 00001538 R     1	        MOV EDX, OFFSET ??004D
+ 00000F0B  E8 00000000 E     1	        CALL    WriteString
+ 00000F10  5A		     1	        POP EDX
+				    mGotoxy 27, 7
+ 00000F11  52		     1	    PUSH    EDX
+ 00000F12  B6 07	     1	    MOV DH, 7
+ 00000F14  B2 1B	     1	    MOV DL, 27
+ 00000F16  E8 00000000 E     1	    CALL    Gotoxy
+ 00000F1B  5A		     1	    POP EDX
+				    mWrite  "| |   \ \  | |     | | | |   \ \  | |  | |     | |  |________ \"
+ 00001577		     1	    .data
+ 00001577 7C 20 7C 20 20     1	        ??004E BYTE "| |   \ \  | |     | | | |   \ \  | |  | |     | |  |________ \", 0
+	   20 5C 20 5C 20
+	   20 7C 20 7C 20
+	   20 20 20 20 7C
+	   20 7C 20 7C 20
+	   7C 20 20 20 5C
+	   20 5C 20 20 7C
+	   20 7C 20 20 7C
+	   20 7C 20 20 20
+	   20 20 7C 20 7C
+	   20 20 7C 5F 5F
+	   5F 5F 5F 5F 5F
+	   5F 20 5C 00
+ 00000F1C		     1	    .code
+ 00000F1C  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000F1E  E8 00000000 E     1	        call SetTextColor
+ 00000F23  52		     1	        PUSH    EDX
+ 00000F24  BA 00001577 R     1	        MOV EDX, OFFSET ??004E
+ 00000F29  E8 00000000 E     1	        CALL    WriteString
+ 00000F2E  5A		     1	        POP EDX
+				    mGotoxy 27, 8
+ 00000F2F  52		     1	    PUSH    EDX
+ 00000F30  B6 08	     1	    MOV DH, 8
+ 00000F32  B2 1B	     1	    MOV DL, 27
+ 00000F34  E8 00000000 E     1	    CALL    Gotoxy
+ 00000F39  5A		     1	    POP EDX
+				    mWrite  "| |    \ \ | |     | | | |    \ \ | |  | |     | |          | |"
+ 000015B7		     1	    .data
+ 000015B7 7C 20 7C 20 20     1	        ??004F BYTE "| |    \ \ | |     | | | |    \ \ | |  | |     | |          | |", 0
+	   20 20 5C 20 5C
+	   20 7C 20 7C 20
+	   20 20 20 20 7C
+	   20 7C 20 7C 20
+	   7C 20 20 20 20
+	   5C 20 5C 20 7C
+	   20 7C 20 20 7C
+	   20 7C 20 20 20
+	   20 20 7C 20 7C
+	   20 20 20 20 20
+	   20 20 20 20 20
+	   7C 20 7C 00
+ 00000F3A		     1	    .code
+ 00000F3A  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000F3C  E8 00000000 E     1	        call SetTextColor
+ 00000F41  52		     1	        PUSH    EDX
+ 00000F42  BA 000015B7 R     1	        MOV EDX, OFFSET ??004F
+ 00000F47  E8 00000000 E     1	        CALL    WriteString
+ 00000F4C  5A		     1	        POP EDX
+				    mGotoxy 27, 9
+ 00000F4D  52		     1	    PUSH    EDX
+ 00000F4E  B6 09	     1	    MOV DH, 9
+ 00000F50  B2 1B	     1	    MOV DL, 27
+ 00000F52  E8 00000000 E     1	    CALL    Gotoxy
+ 00000F57  5A		     1	    POP EDX
+				    mWrite  "| |____/ / | |_____| | | |     \ \| |  | |_____| |  ________| |"
+ 000015F7		     1	    .data
+ 000015F7 7C 20 7C 5F 5F     1	        ??0050 BYTE "| |____/ / | |_____| | | |     \ \| |  | |_____| |  ________| |", 0
+	   5F 5F 2F 20 2F
+	   20 7C 20 7C 5F
+	   5F 5F 5F 5F 7C
+	   20 7C 20 7C 20
+	   7C 20 20 20 20
+	   20 5C 20 5C 7C
+	   20 7C 20 20 7C
+	   20 7C 5F 5F 5F
+	   5F 5F 7C 20 7C
+	   20 20 5F 5F 5F
+	   5F 5F 5F 5F 5F
+	   7C 20 7C 00
+ 00000F58		     1	    .code
+ 00000F58  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000F5A  E8 00000000 E     1	        call SetTextColor
+ 00000F5F  52		     1	        PUSH    EDX
+ 00000F60  BA 000015F7 R     1	        MOV EDX, OFFSET ??0050
+ 00000F65  E8 00000000 E     1	        CALL    WriteString
+ 00000F6A  5A		     1	        POP EDX
+				    mGotoxy 27, 10
+ 00000F6B  52		     1	    PUSH    EDX
+ 00000F6C  B6 0A	     1	    MOV DH, 10
+ 00000F6E  B2 1B	     1	    MOV DL, 27
+ 00000F70  E8 00000000 E     1	    CALL    Gotoxy
+ 00000F75  5A		     1	    POP EDX
+				    mWrite  "|_______/  \_________/ |_|      \___|  \_________/  \_________/"
+ 00001637		     1	    .data
+ 00001637 7C 5F 5F 5F 5F     1	        ??0051 BYTE "|_______/  \_________/ |_|      \___|  \_________/  \_________/", 0
+	   5F 5F 5F 2F 20
+	   20 5C 5F 5F 5F
+	   5F 5F 5F 5F 5F
+	   5F 2F 20 7C 5F
+	   7C 20 20 20 20
+	   20 20 5C 5F 5F
+	   5F 7C 20 20 5C
+	   5F 5F 5F 5F 5F
+	   5F 5F 5F 5F 2F
+	   20 20 5C 5F 5F
+	   5F 5F 5F 5F 5F
+	   5F 5F 2F 00
+ 00000F76		     1	    .code
+ 00000F76  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000F78  E8 00000000 E     1	        call SetTextColor
+ 00000F7D  52		     1	        PUSH    EDX
+ 00000F7E  BA 00001637 R     1	        MOV EDX, OFFSET ??0051
+ 00000F83  E8 00000000 E     1	        CALL    WriteString
+ 00000F88  5A		     1	        POP EDX
+
+				;bonus random---------------------------------
+ 00000F89  B8 00000003		    mov     eax,3      ; RandomRange[0, eax-1]
+ 00000F8E  E8 00000000 E	    call    RandomRange ; result in eax
+ 00000F93  40			    inc     eax
+ 00000F94  C7 05 00000004 R	    mov     ranbon,0
+	   00000000
+ 00000F9E  A3 00000004 R	    mov     ranbon,eax
+				    .if eax == 1       
+				        mGotoxy 50, 12                                        
+ 00000FAC  52		     1	    PUSH    EDX
+ 00000FAD  B6 0C	     1	    MOV DH, 12
+ 00000FAF  B2 32	     1	    MOV DL, 50
+ 00000FB1  E8 00000000 E     1	    CALL    Gotoxy
+ 00000FB6  5A		     1	    POP EDX
+				        mWrite  "     _____"
+ 00001677		     1	    .data
+ 00001677 20 20 20 20 20     1	        ??0052 BYTE "     _____", 0
+	   5F 5F 5F 5F 5F
+	   00
+ 00000FB7		     1	    .code
+ 00000FB7  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000FB9  E8 00000000 E     1	        call SetTextColor
+ 00000FBE  52		     1	        PUSH    EDX
+ 00000FBF  BA 00001677 R     1	        MOV EDX, OFFSET ??0052
+ 00000FC4  E8 00000000 E     1	        CALL    WriteString
+ 00000FC9  5A		     1	        POP EDX
+				        mGotoxy 50, 14                                       
+ 00000FCA  52		     1	    PUSH    EDX
+ 00000FCB  B6 0E	     1	    MOV DH, 14
+ 00000FCD  B2 32	     1	    MOV DL, 50
+ 00000FCF  E8 00000000 E     1	    CALL    Gotoxy
+ 00000FD4  5A		     1	    POP EDX
+				        mWrite  "    /    |"  
+ 00001682		     1	    .data
+ 00001682 20 20 20 20 2F     1	        ??0053 BYTE "    /    |", 0
+	   20 20 20 20 7C
+	   00
+ 00000FD5		     1	    .code
+ 00000FD5  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000FD7  E8 00000000 E     1	        call SetTextColor
+ 00000FDC  52		     1	        PUSH    EDX
+ 00000FDD  BA 00001682 R     1	        MOV EDX, OFFSET ??0053
+ 00000FE2  E8 00000000 E     1	        CALL    WriteString
+ 00000FE7  5A		     1	        POP EDX
+				        mGotoxy 50, 16 
+ 00000FE8  52		     1	    PUSH    EDX
+ 00000FE9  B6 10	     1	    MOV DH, 16
+ 00000FEB  B2 32	     1	    MOV DL, 50
+ 00000FED  E8 00000000 E     1	    CALL    Gotoxy
+ 00000FF2  5A		     1	    POP EDX
+				        mWrite  "   /  |  |"
+ 0000168D		     1	    .data
+ 0000168D 20 20 20 2F 20     1	        ??0054 BYTE "   /  |  |", 0
+	   20 7C 20 20 7C
+	   00
+ 00000FF3		     1	    .code
+ 00000FF3  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00000FF5  E8 00000000 E     1	        call SetTextColor
+ 00000FFA  52		     1	        PUSH    EDX
+ 00000FFB  BA 0000168D R     1	        MOV EDX, OFFSET ??0054
+ 00001000  E8 00000000 E     1	        CALL    WriteString
+ 00001005  5A		     1	        POP EDX
+				        mGotoxy 50, 18
+ 00001006  52		     1	    PUSH    EDX
+ 00001007  B6 12	     1	    MOV DH, 18
+ 00001009  B2 32	     1	    MOV DL, 50
+ 0000100B  E8 00000000 E     1	    CALL    Gotoxy
+ 00001010  5A		     1	    POP EDX
+				        mWrite  "  /__/|  |"
+ 00001698		     1	    .data
+ 00001698 20 20 2F 5F 5F     1	        ??0055 BYTE "  /__/|  |", 0
+	   2F 7C 20 20 7C
+	   00
+ 00001011		     1	    .code
+ 00001011  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00001013  E8 00000000 E     1	        call SetTextColor
+ 00001018  52		     1	        PUSH    EDX
+ 00001019  BA 00001698 R     1	        MOV EDX, OFFSET ??0055
+ 0000101E  E8 00000000 E     1	        CALL    WriteString
+ 00001023  5A		     1	        POP EDX
+				        mGotoxy 50, 20
+ 00001024  52		     1	    PUSH    EDX
+ 00001025  B6 14	     1	    MOV DH, 20
+ 00001027  B2 32	     1	    MOV DL, 50
+ 00001029  E8 00000000 E     1	    CALL    Gotoxy
+ 0000102E  5A		     1	    POP EDX
+				        mWrite  "      |  |"
+ 000016A3		     1	    .data
+ 000016A3 20 20 20 20 20     1	        ??0056 BYTE "      |  |", 0
+	   20 7C 20 20 7C
+	   00
+ 0000102F		     1	    .code
+ 0000102F  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00001031  E8 00000000 E     1	        call SetTextColor
+ 00001036  52		     1	        PUSH    EDX
+ 00001037  BA 000016A3 R     1	        MOV EDX, OFFSET ??0056
+ 0000103C  E8 00000000 E     1	        CALL    WriteString
+ 00001041  5A		     1	        POP EDX
+				        mGotoxy 50, 22
+ 00001042  52		     1	    PUSH    EDX
+ 00001043  B6 16	     1	    MOV DH, 22
+ 00001045  B2 32	     1	    MOV DL, 50
+ 00001047  E8 00000000 E     1	    CALL    Gotoxy
+ 0000104C  5A		     1	    POP EDX
+				        mWrite  "   ___|  |___"
+ 000016AE		     1	    .data
+ 000016AE 20 20 20 5F 5F     1	        ??0057 BYTE "   ___|  |___", 0
+	   5F 7C 20 20 7C
+	   5F 5F 5F 00
+ 0000104D		     1	    .code
+ 0000104D  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000104F  E8 00000000 E     1	        call SetTextColor
+ 00001054  52		     1	        PUSH    EDX
+ 00001055  BA 000016AE R     1	        MOV EDX, OFFSET ??0057
+ 0000105A  E8 00000000 E     1	        CALL    WriteString
+ 0000105F  5A		     1	        POP EDX
+				        mGotoxy 50, 24
+ 00001060  52		     1	    PUSH    EDX
+ 00001061  B6 18	     1	    MOV DH, 24
+ 00001063  B2 32	     1	    MOV DL, 50
+ 00001065  E8 00000000 E     1	    CALL    Gotoxy
+ 0000106A  5A		     1	    POP EDX
+				        mWrite  "  |__________|"
+ 000016BC		     1	    .data
+ 000016BC 20 20 7C 5F 5F     1	        ??0058 BYTE "  |__________|", 0
+	   5F 5F 5F 5F 5F
+	   5F 5F 5F 7C 00
+ 0000106B		     1	    .code
+ 0000106B  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000106D  E8 00000000 E     1	        call SetTextColor
+ 00001072  52		     1	        PUSH    EDX
+ 00001073  BA 000016BC R     1	        MOV EDX, OFFSET ??0058
+ 00001078  E8 00000000 E     1	        CALL    WriteString
+ 0000107D  5A		     1	        POP EDX
+				    .elseif eax == 2
+				        mGotoxy 50, 12                                        
+ 0000108C  52		     1	    PUSH    EDX
+ 0000108D  B6 0C	     1	    MOV DH, 12
+ 0000108F  B2 32	     1	    MOV DL, 50
+ 00001091  E8 00000000 E     1	    CALL    Gotoxy
+ 00001096  5A		     1	    POP EDX
+				        mWrite  "  ___________  "
+ 000016CB		     1	    .data
+ 000016CB 20 20 5F 5F 5F     1	        ??0059 BYTE "  ___________  ", 0
+	   5F 5F 5F 5F 5F
+	   5F 5F 5F 20 20
+	   00
+ 00001097		     1	    .code
+ 00001097  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00001099  E8 00000000 E     1	        call SetTextColor
+ 0000109E  52		     1	        PUSH    EDX
+ 0000109F  BA 000016CB R     1	        MOV EDX, OFFSET ??0059
+ 000010A4  E8 00000000 E     1	        CALL    WriteString
+ 000010A9  5A		     1	        POP EDX
+				        mGotoxy 50, 14                                       
+ 000010AA  52		     1	    PUSH    EDX
+ 000010AB  B6 0E	     1	    MOV DH, 14
+ 000010AD  B2 32	     1	    MOV DL, 50
+ 000010AF  E8 00000000 E     1	    CALL    Gotoxy
+ 000010B4  5A		     1	    POP EDX
+				        mWrite  " |________   |"  
+ 000016DB		     1	    .data
+ 000016DB 20 7C 5F 5F 5F     1	        ??005A BYTE " |________   |", 0
+	   5F 5F 5F 5F 5F
+	   20 20 20 7C 00
+ 000010B5		     1	    .code
+ 000010B5  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000010B7  E8 00000000 E     1	        call SetTextColor
+ 000010BC  52		     1	        PUSH    EDX
+ 000010BD  BA 000016DB R     1	        MOV EDX, OFFSET ??005A
+ 000010C2  E8 00000000 E     1	        CALL    WriteString
+ 000010C7  5A		     1	        POP EDX
+				        mGotoxy 50, 16 
+ 000010C8  52		     1	    PUSH    EDX
+ 000010C9  B6 10	     1	    MOV DH, 16
+ 000010CB  B2 32	     1	    MOV DL, 50
+ 000010CD  E8 00000000 E     1	    CALL    Gotoxy
+ 000010D2  5A		     1	    POP EDX
+				        mWrite  "          |  |"
+ 000016EA		     1	    .data
+ 000016EA 20 20 20 20 20     1	        ??005B BYTE "          |  |", 0
+	   20 20 20 20 20
+	   7C 20 20 7C 00
+ 000010D3		     1	    .code
+ 000010D3  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000010D5  E8 00000000 E     1	        call SetTextColor
+ 000010DA  52		     1	        PUSH    EDX
+ 000010DB  BA 000016EA R     1	        MOV EDX, OFFSET ??005B
+ 000010E0  E8 00000000 E     1	        CALL    WriteString
+ 000010E5  5A		     1	        POP EDX
+				        mGotoxy 50, 18
+ 000010E6  52		     1	    PUSH    EDX
+ 000010E7  B6 12	     1	    MOV DH, 18
+ 000010E9  B2 32	     1	    MOV DL, 50
+ 000010EB  E8 00000000 E     1	    CALL    Gotoxy
+ 000010F0  5A		     1	    POP EDX
+				        mWrite  "  ________|  |"
+ 000016F9		     1	    .data
+ 000016F9 20 20 5F 5F 5F     1	        ??005C BYTE "  ________|  |", 0
+	   5F 5F 5F 5F 5F
+	   7C 20 20 7C 00
+ 000010F1		     1	    .code
+ 000010F1  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000010F3  E8 00000000 E     1	        call SetTextColor
+ 000010F8  52		     1	        PUSH    EDX
+ 000010F9  BA 000016F9 R     1	        MOV EDX, OFFSET ??005C
+ 000010FE  E8 00000000 E     1	        CALL    WriteString
+ 00001103  5A		     1	        POP EDX
+				        mGotoxy 50, 20
+ 00001104  52		     1	    PUSH    EDX
+ 00001105  B6 14	     1	    MOV DH, 20
+ 00001107  B2 32	     1	    MOV DL, 50
+ 00001109  E8 00000000 E     1	    CALL    Gotoxy
+ 0000110E  5A		     1	    POP EDX
+				        mWrite  " |   ________|"
+ 00001708		     1	    .data
+ 00001708 20 7C 20 20 20     1	        ??005D BYTE " |   ________|", 0
+	   5F 5F 5F 5F 5F
+	   5F 5F 5F 7C 00
+ 0000110F		     1	    .code
+ 0000110F  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00001111  E8 00000000 E     1	        call SetTextColor
+ 00001116  52		     1	        PUSH    EDX
+ 00001117  BA 00001708 R     1	        MOV EDX, OFFSET ??005D
+ 0000111C  E8 00000000 E     1	        CALL    WriteString
+ 00001121  5A		     1	        POP EDX
+				        mGotoxy 50, 22
+ 00001122  52		     1	    PUSH    EDX
+ 00001123  B6 16	     1	    MOV DH, 22
+ 00001125  B2 32	     1	    MOV DL, 50
+ 00001127  E8 00000000 E     1	    CALL    Gotoxy
+ 0000112C  5A		     1	    POP EDX
+				        mWrite  " |  |________"
+ 00001717		     1	    .data
+ 00001717 20 7C 20 20 7C     1	        ??005E BYTE " |  |________", 0
+	   5F 5F 5F 5F 5F
+	   5F 5F 5F 00
+ 0000112D		     1	    .code
+ 0000112D  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000112F  E8 00000000 E     1	        call SetTextColor
+ 00001134  52		     1	        PUSH    EDX
+ 00001135  BA 00001717 R     1	        MOV EDX, OFFSET ??005E
+ 0000113A  E8 00000000 E     1	        CALL    WriteString
+ 0000113F  5A		     1	        POP EDX
+				        mGotoxy 50, 24
+ 00001140  52		     1	    PUSH    EDX
+ 00001141  B6 18	     1	    MOV DH, 24
+ 00001143  B2 32	     1	    MOV DL, 50
+ 00001145  E8 00000000 E     1	    CALL    Gotoxy
+ 0000114A  5A		     1	    POP EDX
+				        mWrite  " |___________|"
+ 00001725		     1	    .data
+ 00001725 20 7C 5F 5F 5F     1	        ??005F BYTE " |___________|", 0
+	   5F 5F 5F 5F 5F
+	   5F 5F 5F 7C 00
+ 0000114B		     1	    .code
+ 0000114B  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000114D  E8 00000000 E     1	        call SetTextColor
+ 00001152  52		     1	        PUSH    EDX
+ 00001153  BA 00001725 R     1	        MOV EDX, OFFSET ??005F
+ 00001158  E8 00000000 E     1	        CALL    WriteString
+ 0000115D  5A		     1	        POP EDX
+				    .elseif eax > 2    
+				        mGotoxy 50, 12                                        
+ 0000116C  52		     1	    PUSH    EDX
+ 0000116D  B6 0C	     1	    MOV DH, 12
+ 0000116F  B2 32	     1	    MOV DL, 50
+ 00001171  E8 00000000 E     1	    CALL    Gotoxy
+ 00001176  5A		     1	    POP EDX
+				        mWrite  "  ___________ "
+ 00001734		     1	    .data
+ 00001734 20 20 5F 5F 5F     1	        ??0060 BYTE "  ___________ ", 0
+	   5F 5F 5F 5F 5F
+	   5F 5F 5F 20 00
+ 00001177		     1	    .code
+ 00001177  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00001179  E8 00000000 E     1	        call SetTextColor
+ 0000117E  52		     1	        PUSH    EDX
+ 0000117F  BA 00001734 R     1	        MOV EDX, OFFSET ??0060
+ 00001184  E8 00000000 E     1	        CALL    WriteString
+ 00001189  5A		     1	        POP EDX
+				        mGotoxy 50, 14                                       
+ 0000118A  52		     1	    PUSH    EDX
+ 0000118B  B6 0E	     1	    MOV DH, 14
+ 0000118D  B2 32	     1	    MOV DL, 50
+ 0000118F  E8 00000000 E     1	    CALL    Gotoxy
+ 00001194  5A		     1	    POP EDX
+				        mWrite  " |________   |"  
+ 00001743		     1	    .data
+ 00001743 20 7C 5F 5F 5F     1	        ??0061 BYTE " |________   |", 0
+	   5F 5F 5F 5F 5F
+	   20 20 20 7C 00
+ 00001195		     1	    .code
+ 00001195  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00001197  E8 00000000 E     1	        call SetTextColor
+ 0000119C  52		     1	        PUSH    EDX
+ 0000119D  BA 00001743 R     1	        MOV EDX, OFFSET ??0061
+ 000011A2  E8 00000000 E     1	        CALL    WriteString
+ 000011A7  5A		     1	        POP EDX
+				        mGotoxy 50, 16 
+ 000011A8  52		     1	    PUSH    EDX
+ 000011A9  B6 10	     1	    MOV DH, 16
+ 000011AB  B2 32	     1	    MOV DL, 50
+ 000011AD  E8 00000000 E     1	    CALL    Gotoxy
+ 000011B2  5A		     1	    POP EDX
+				        mWrite  "          |  |"
+ 00001752		     1	    .data
+ 00001752 20 20 20 20 20     1	        ??0062 BYTE "          |  |", 0
+	   20 20 20 20 20
+	   7C 20 20 7C 00
+ 000011B3		     1	    .code
+ 000011B3  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000011B5  E8 00000000 E     1	        call SetTextColor
+ 000011BA  52		     1	        PUSH    EDX
+ 000011BB  BA 00001752 R     1	        MOV EDX, OFFSET ??0062
+ 000011C0  E8 00000000 E     1	        CALL    WriteString
+ 000011C5  5A		     1	        POP EDX
+				        mGotoxy 50, 18
+ 000011C6  52		     1	    PUSH    EDX
+ 000011C7  B6 12	     1	    MOV DH, 18
+ 000011C9  B2 32	     1	    MOV DL, 50
+ 000011CB  E8 00000000 E     1	    CALL    Gotoxy
+ 000011D0  5A		     1	    POP EDX
+				        mWrite  "  ________|  |"
+ 00001761		     1	    .data
+ 00001761 20 20 5F 5F 5F     1	        ??0063 BYTE "  ________|  |", 0
+	   5F 5F 5F 5F 5F
+	   7C 20 20 7C 00
+ 000011D1		     1	    .code
+ 000011D1  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000011D3  E8 00000000 E     1	        call SetTextColor
+ 000011D8  52		     1	        PUSH    EDX
+ 000011D9  BA 00001761 R     1	        MOV EDX, OFFSET ??0063
+ 000011DE  E8 00000000 E     1	        CALL    WriteString
+ 000011E3  5A		     1	        POP EDX
+				        mGotoxy 50, 20
+ 000011E4  52		     1	    PUSH    EDX
+ 000011E5  B6 14	     1	    MOV DH, 20
+ 000011E7  B2 32	     1	    MOV DL, 50
+ 000011E9  E8 00000000 E     1	    CALL    Gotoxy
+ 000011EE  5A		     1	    POP EDX
+				        mWrite  " |________   |"
+ 00001770		     1	    .data
+ 00001770 20 7C 5F 5F 5F     1	        ??0064 BYTE " |________   |", 0
+	   5F 5F 5F 5F 5F
+	   20 20 20 7C 00
+ 000011EF		     1	    .code
+ 000011EF  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000011F1  E8 00000000 E     1	        call SetTextColor
+ 000011F6  52		     1	        PUSH    EDX
+ 000011F7  BA 00001770 R     1	        MOV EDX, OFFSET ??0064
+ 000011FC  E8 00000000 E     1	        CALL    WriteString
+ 00001201  5A		     1	        POP EDX
+				        mGotoxy 50, 22
+ 00001202  52		     1	    PUSH    EDX
+ 00001203  B6 16	     1	    MOV DH, 22
+ 00001205  B2 32	     1	    MOV DL, 50
+ 00001207  E8 00000000 E     1	    CALL    Gotoxy
+ 0000120C  5A		     1	    POP EDX
+				        mWrite  "          |  |"
+ 0000177F		     1	    .data
+ 0000177F 20 20 20 20 20     1	        ??0065 BYTE "          |  |", 0
+	   20 20 20 20 20
+	   7C 20 20 7C 00
+ 0000120D		     1	    .code
+ 0000120D  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000120F  E8 00000000 E     1	        call SetTextColor
+ 00001214  52		     1	        PUSH    EDX
+ 00001215  BA 0000177F R     1	        MOV EDX, OFFSET ??0065
+ 0000121A  E8 00000000 E     1	        CALL    WriteString
+ 0000121F  5A		     1	        POP EDX
+				        mGotoxy 50, 24
+ 00001220  52		     1	    PUSH    EDX
+ 00001221  B6 18	     1	    MOV DH, 24
+ 00001223  B2 32	     1	    MOV DL, 50
+ 00001225  E8 00000000 E     1	    CALL    Gotoxy
+ 0000122A  5A		     1	    POP EDX
+				        mWrite  "  ________|  | "
+ 0000178E		     1	    .data
+ 0000178E 20 20 5F 5F 5F     1	        ??0066 BYTE "  ________|  | ", 0
+	   5F 5F 5F 5F 5F
+	   7C 20 20 7C 20
+	   00
+ 0000122B		     1	    .code
+ 0000122B  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000122D  E8 00000000 E     1	        call SetTextColor
+ 00001232  52		     1	        PUSH    EDX
+ 00001233  BA 0000178E R     1	        MOV EDX, OFFSET ??0066
+ 00001238  E8 00000000 E     1	        CALL    WriteString
+ 0000123D  5A		     1	        POP EDX
+				        mGotoxy 50, 26
+ 0000123E  52		     1	    PUSH    EDX
+ 0000123F  B6 1A	     1	    MOV DH, 26
+ 00001241  B2 32	     1	    MOV DL, 50
+ 00001243  E8 00000000 E     1	    CALL    Gotoxy
+ 00001248  5A		     1	    POP EDX
+				        mWrite  " |___________|"
+ 0000179E		     1	    .data
+ 0000179E 20 7C 5F 5F 5F     1	        ??0067 BYTE " |___________|", 0
+	   5F 5F 5F 5F 5F
+	   5F 5F 5F 7C 00
+ 00001249		     1	    .code
+ 00001249  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000124B  E8 00000000 E     1	        call SetTextColor
+ 00001250  52		     1	        PUSH    EDX
+ 00001251  BA 0000179E R     1	        MOV EDX, OFFSET ??0067
+ 00001256  E8 00000000 E     1	        CALL    WriteString
+ 0000125B  5A		     1	        POP EDX
+				    .endif
+				    INVOKE  Sleep, 3000
+				    ;mGotoxy 0, 0
+ 00001266  C3			    ret
+ 00001267			bonus endp
+
+				;遊戲結束--------------------
+ 00001267			gameover proc
+ 00001267  E8 00000000 E	    call    Clrscr
+ 0000126C  E8 FFFFED9B		    CALL    PrintWalls
+				    mGotoxy 15, 4                                       
+ 00001271  52		     1	    PUSH    EDX
+ 00001272  B6 04	     1	    MOV DH, 4
+ 00001274  B2 0F	     1	    MOV DL, 15
+ 00001276  E8 00000000 E     1	    CALL    Gotoxy
+ 0000127B  5A		     1	    POP EDX
+				    mWrite  " _______      ____     ____    ___  _______       _______  __      __ _______  _______"  
+ 000017AD		     1	    .data
+ 000017AD 20 5F 5F 5F 5F     1	        ??0068 BYTE " _______      ____     ____    ___  _______       _______  __      __ _______  _______", 0
+	   5F 5F 5F 20 20
+	   20 20 20 20 5F
+	   5F 5F 5F 20 20
+	   20 20 20 5F 5F
+	   5F 5F 20 20 20
+	   20 5F 5F 5F 20
+	   20 5F 5F 5F 5F
+	   5F 5F 5F 20 20
+	   20 20 20 20 20
+	   5F 5F 5F 5F 5F
+	   5F 5F 20 20 5F
+	   5F 20 20 20 20
+	   20 20 5F 5F 20
+	   5F 5F 5F 5F 5F
+	   5F 5F 20 20 5F
+	   5F 5F 5F 5F 5F
+	   5F 00
+ 0000127C		     1	    .code
+ 0000127C  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000127E  E8 00000000 E     1	        call SetTextColor
+ 00001283  52		     1	        PUSH    EDX
+ 00001284  BA 000017AD R     1	        MOV EDX, OFFSET ??0068
+ 00001289  E8 00000000 E     1	        CALL    WriteString
+ 0000128E  5A		     1	        POP EDX
+				    mGotoxy 15, 5 
+ 0000128F  52		     1	    PUSH    EDX
+ 00001290  B6 05	     1	    MOV DH, 5
+ 00001292  B2 0F	     1	    MOV DL, 15
+ 00001294  E8 00000000 E     1	    CALL    Gotoxy
+ 00001299  5A		     1	    POP EDX
+				    mWrite  "/  _____\    /    \    |   \  /   | |  ____|     / _____ \ | |    | | |  ____| | ____ \"
+ 00001804		     1	    .data
+ 00001804 2F 20 20 5F 5F     1	        ??0069 BYTE "/  _____\    /    \    |   \  /   | |  ____|     / _____ \ | |    | | |  ____| | ____ \", 0
+	   5F 5F 5F 5C 20
+	   20 20 20 2F 20
+	   20 20 20 5C 20
+	   20 20 20 7C 20
+	   20 20 5C 20 20
+	   2F 20 20 20 7C
+	   20 7C 20 20 5F
+	   5F 5F 5F 7C 20
+	   20 20 20 20 2F
+	   20 5F 5F 5F 5F
+	   5F 20 5C 20 7C
+	   20 7C 20 20 20
+	   20 7C 20 7C 20
+	   7C 20 20 5F 5F
+	   5F 5F 7C 20 7C
+	   20 5F 5F 5F 5F
+	   20 5C 00
+ 0000129A		     1	    .code
+ 0000129A  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000129C  E8 00000000 E     1	        call SetTextColor
+ 000012A1  52		     1	        PUSH    EDX
+ 000012A2  BA 00001804 R     1	        MOV EDX, OFFSET ??0069
+ 000012A7  E8 00000000 E     1	        CALL    WriteString
+ 000012AC  5A		     1	        POP EDX
+				    mGotoxy 15, 6
+ 000012AD  52		     1	    PUSH    EDX
+ 000012AE  B6 06	     1	    MOV DH, 6
+ 000012B0  B2 0F	     1	    MOV DL, 15
+ 000012B2  E8 00000000 E     1	    CALL    Gotoxy
+ 000012B7  5A		     1	    POP EDX
+				    mWrite  "| |         /  /\  \   | |\ \/ /| | | |          | |   | | | |    | | | |      | |   \ \"
+ 0000185C		     1	    .data
+ 0000185C 7C 20 7C 20 20     1	        ??006A BYTE "| |         /  /\  \   | |\ \/ /| | | |          | |   | | | |    | | | |      | |   \ \", 0
+	   20 20 20 20 20
+	   20 20 2F 20 20
+	   2F 5C 20 20 5C
+	   20 20 20 7C 20
+	   7C 5C 20 5C 2F
+	   20 2F 7C 20 7C
+	   20 7C 20 7C 20
+	   20 20 20 20 20
+	   20 20 20 20 7C
+	   20 7C 20 20 20
+	   7C 20 7C 20 7C
+	   20 7C 20 20 20
+	   20 7C 20 7C 20
+	   7C 20 7C 20 20
+	   20 20 20 20 7C
+	   20 7C 20 20 20
+	   5C 20 5C 00
+ 000012B8		     1	    .code
+ 000012B8  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000012BA  E8 00000000 E     1	        call SetTextColor
+ 000012BF  52		     1	        PUSH    EDX
+ 000012C0  BA 0000185C R     1	        MOV EDX, OFFSET ??006A
+ 000012C5  E8 00000000 E     1	        CALL    WriteString
+ 000012CA  5A		     1	        POP EDX
+				    mGotoxy 15, 7
+ 000012CB  52		     1	    PUSH    EDX
+ 000012CC  B6 07	     1	    MOV DH, 7
+ 000012CE  B2 0F	     1	    MOV DL, 15
+ 000012D0  E8 00000000 E     1	    CALL    Gotoxy
+ 000012D5  5A		     1	    POP EDX
+				    mWrite  "| |  ___   /  /__\  \  | | \  / | | | |____      | |   | | | |    | | | |____  | |___/ /"
+ 000018B5		     1	    .data
+ 000018B5 7C 20 7C 20 20     1	        ??006B BYTE "| |  ___   /  /__\  \  | | \  / | | | |____      | |   | | | |    | | | |____  | |___/ /", 0
+	   5F 5F 5F 20 20
+	   20 2F 20 20 2F
+	   5F 5F 5C 20 20
+	   5C 20 20 7C 20
+	   7C 20 5C 20 20
+	   2F 20 7C 20 7C
+	   20 7C 20 7C 5F
+	   5F 5F 5F 20 20
+	   20 20 20 20 7C
+	   20 7C 20 20 20
+	   7C 20 7C 20 7C
+	   20 7C 20 20 20
+	   20 7C 20 7C 20
+	   7C 20 7C 5F 5F
+	   5F 5F 20 20 7C
+	   20 7C 5F 5F 5F
+	   2F 20 2F 00
+ 000012D6		     1	    .code
+ 000012D6  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000012D8  E8 00000000 E     1	        call SetTextColor
+ 000012DD  52		     1	        PUSH    EDX
+ 000012DE  BA 000018B5 R     1	        MOV EDX, OFFSET ??006B
+ 000012E3  E8 00000000 E     1	        CALL    WriteString
+ 000012E8  5A		     1	        POP EDX
+				    mGotoxy 15, 8
+ 000012E9  52		     1	    PUSH    EDX
+ 000012EA  B6 08	     1	    MOV DH, 8
+ 000012EC  B2 0F	     1	    MOV DL, 15
+ 000012EE  E8 00000000 E     1	    CALL    Gotoxy
+ 000012F3  5A		     1	    POP EDX
+				    mWrite  "| | |_  | /  ______  \ | |  \/  | | |  ____|     | |   | | \ \    / / |  ____| | __  _/"
+ 0000190E		     1	    .data
+ 0000190E 7C 20 7C 20 7C     1	        ??006C BYTE "| | |_  | /  ______  \ | |  \/  | | |  ____|     | |   | | \ \    / / |  ____| | __  _/", 0
+	   5F 20 20 7C 20
+	   2F 20 20 5F 5F
+	   5F 5F 5F 5F 20
+	   20 5C 20 7C 20
+	   7C 20 20 5C 2F
+	   20 20 7C 20 7C
+	   20 7C 20 20 5F
+	   5F 5F 5F 7C 20
+	   20 20 20 20 7C
+	   20 7C 20 20 20
+	   7C 20 7C 20 5C
+	   20 5C 20 20 20
+	   20 2F 20 2F 20
+	   7C 20 20 5F 5F
+	   5F 5F 7C 20 7C
+	   20 5F 5F 20 20
+	   5F 2F 00
+ 000012F4		     1	    .code
+ 000012F4  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000012F6  E8 00000000 E     1	        call SetTextColor
+ 000012FB  52		     1	        PUSH    EDX
+ 000012FC  BA 0000190E R     1	        MOV EDX, OFFSET ??006C
+ 00001301  E8 00000000 E     1	        CALL    WriteString
+ 00001306  5A		     1	        POP EDX
+				    mGotoxy 15, 9
+ 00001307  52		     1	    PUSH    EDX
+ 00001308  B6 09	     1	    MOV DH, 9
+ 0000130A  B2 0F	     1	    MOV DL, 15
+ 0000130C  E8 00000000 E     1	    CALL    Gotoxy
+ 00001311  5A		     1	    POP EDX
+				    mWrite  "| |___| | |  |    |  | | |      | | | |____      | |___| |  \ \__/ /  | |____  | | \ \"
+ 00001966		     1	    .data
+ 00001966 7C 20 7C 5F 5F     1	        ??006D BYTE "| |___| | |  |    |  | | |      | | | |____      | |___| |  \ \__/ /  | |____  | | \ \", 0
+	   5F 7C 20 7C 20
+	   7C 20 20 7C 20
+	   20 20 20 7C 20
+	   20 7C 20 7C 20
+	   7C 20 20 20 20
+	   20 20 7C 20 7C
+	   20 7C 20 7C 5F
+	   5F 5F 5F 20 20
+	   20 20 20 20 7C
+	   20 7C 5F 5F 5F
+	   7C 20 7C 20 20
+	   5C 20 5C 5F 5F
+	   2F 20 2F 20 20
+	   7C 20 7C 5F 5F
+	   5F 5F 20 20 7C
+	   20 7C 20 5C 20
+	   5C 00
+ 00001312		     1	    .code
+ 00001312  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00001314  E8 00000000 E     1	        call SetTextColor
+ 00001319  52		     1	        PUSH    EDX
+ 0000131A  BA 00001966 R     1	        MOV EDX, OFFSET ??006D
+ 0000131F  E8 00000000 E     1	        CALL    WriteString
+ 00001324  5A		     1	        POP EDX
+				    mGotoxy 15, 10
+ 00001325  52		     1	    PUSH    EDX
+ 00001326  B6 0A	     1	    MOV DH, 10
+ 00001328  B2 0F	     1	    MOV DL, 15
+ 0000132A  E8 00000000 E     1	    CALL    Gotoxy
+ 0000132F  5A		     1	    POP EDX
+				    mWrite  "\_______/ |__|    |__| |_|      |_| |______|     \_______/   \____/   |______| |_|  \_\"
+ 000019BD		     1	    .data
+ 000019BD 5C 5F 5F 5F 5F     1	        ??006E BYTE "\_______/ |__|    |__| |_|      |_| |______|     \_______/   \____/   |______| |_|  \_\", 0
+	   5F 5F 5F 2F 20
+	   7C 5F 5F 7C 20
+	   20 20 20 7C 5F
+	   5F 7C 20 7C 5F
+	   7C 20 20 20 20
+	   20 20 7C 5F 7C
+	   20 7C 5F 5F 5F
+	   5F 5F 5F 7C 20
+	   20 20 20 20 5C
+	   5F 5F 5F 5F 5F
+	   5F 5F 2F 20 20
+	   20 5C 5F 5F 5F
+	   5F 2F 20 20 20
+	   7C 5F 5F 5F 5F
+	   5F 5F 7C 20 7C
+	   5F 7C 20 20 5C
+	   5F 5C 00
+ 00001330		     1	    .code
+ 00001330  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00001332  E8 00000000 E     1	        call SetTextColor
+ 00001337  52		     1	        PUSH    EDX
+ 00001338  BA 000019BD R     1	        MOV EDX, OFFSET ??006E
+ 0000133D  E8 00000000 E     1	        CALL    WriteString
+ 00001342  5A		     1	        POP EDX
+
+
+				    mGotoxy 55, 14
+ 00001343  52		     1	    PUSH    EDX
+ 00001344  B6 0E	     1	    MOV DH, 14
+ 00001346  B2 37	     1	    MOV DL, 55
+ 00001348  E8 00000000 E     1	    CALL    Gotoxy
+ 0000134D  5A		     1	    POP EDX
+				    mWrite  "Hey~ "
+ 00001A15		     1	    .data
+ 00001A15 48 65 79 7E 20     1	        ??006F BYTE "Hey~ ", 0
+	   00
+ 0000134E		     1	    .code
+ 0000134E  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 00001350  E8 00000000 E     1	        call SetTextColor
+ 00001355  52		     1	        PUSH    EDX
+ 00001356  BA 00001A15 R     1	        MOV EDX, OFFSET ??006F
+ 0000135B  E8 00000000 E     1	        CALL    WriteString
+ 00001360  5A		     1	        POP EDX
+				    mGotoxy 60, 14
+ 00001361  52		     1	    PUSH    EDX
+ 00001362  B6 0E	     1	    MOV DH, 14
+ 00001364  B2 3C	     1	    MOV DL, 60
+ 00001366  E8 00000000 E     1	    CALL    Gotoxy
+ 0000136B  5A		     1	    POP EDX
+				    mWriteString offset playerName
+ 0000136C  B0 0F	     1	     mov al , 15 + ( 0 * 16 );改變顏色
+ 0000136E  E8 00000000 E     1	    call SetTextColor
+ 00001373  52		     1	    PUSH    EDX
+ 00001374  BA 0000020E R     1	    MOV EDX, OFFSET offset playerName
+ 00001379  E8 00000000 E     1	    CALL    WriteString
+ 0000137E  5A		     1	    POP EDX
+				    mGotoxy 44, 16                                   
+ 0000137F  52		     1	    PUSH    EDX
+ 00001380  B6 10	     1	    MOV DH, 16
+ 00001382  B2 2C	     1	    MOV DL, 44
+ 00001384  E8 00000000 E     1	    CALL    Gotoxy
+ 00001389  5A		     1	    POP EDX
+				    mWrite  "Your exact score and bonus is "
+ 00001A1B		     1	    .data
+ 00001A1B 59 6F 75 72 20     1	        ??0070 BYTE "Your exact score and bonus is ", 0
+	   65 78 61 63 74
+	   20 73 63 6F 72
+	   65 20 61 6E 64
+	   20 62 6F 6E 75
+	   73 20 69 73 20
+	   00
+ 0000138A		     1	    .code
+ 0000138A  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 0000138C  E8 00000000 E     1	        call SetTextColor
+ 00001391  52		     1	        PUSH    EDX
+ 00001392  BA 00001A1B R     1	        MOV EDX, OFFSET ??0070
+ 00001397  E8 00000000 E     1	        CALL    WriteString
+ 0000139C  5A		     1	        POP EDX
+ 0000139D  A1 00000000 R	    mov eax, score
+ 000013A2  E8 00000000 E	    call writedec   
+ 000013A7  B0 20		    mov    al , ' '                      
+ 000013A9  E8 00000000 E	    call     WriteChar
+ 000013AE  B0 26		    mov    al , '&'                      
+ 000013B0  E8 00000000 E	    call     WriteChar 
+ 000013B5  B0 20		    mov    al , ' '                      
+ 000013B7  E8 00000000 E	    call     WriteChar
+ 000013BC  A1 00000004 R	    mov eax, ranbon
+ 000013C1  E8 00000000 E	    call writedec
+				    mGotoxy 46, 18                                   
+ 000013C6  52		     1	    PUSH    EDX
+ 000013C7  B6 12	     1	    MOV DH, 18
+ 000013C9  B2 2E	     1	    MOV DL, 46
+ 000013CB  E8 00000000 E     1	    CALL    Gotoxy
+ 000013D0  5A		     1	    POP EDX
+				    mWrite  "Your total score is "
+ 00001A3A		     1	    .data
+ 00001A3A 59 6F 75 72 20     1	        ??0071 BYTE "Your total score is ", 0
+	   74 6F 74 61 6C
+	   20 73 63 6F 72
+	   65 20 69 73 20
+	   00
+ 000013D1		     1	    .code
+ 000013D1  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000013D3  E8 00000000 E     1	        call SetTextColor
+ 000013D8  52		     1	        PUSH    EDX
+ 000013D9  BA 00001A3A R     1	        MOV EDX, OFFSET ??0071
+ 000013DE  E8 00000000 E     1	        CALL    WriteString
+ 000013E3  5A		     1	        POP EDX
+ 000013E4  A1 00000000 R	     mov eax, score
+ 000013E9  E8 00000000 E	    call writedec   
+ 000013EE  B0 20		    mov    al , ' '                      
+ 000013F0  E8 00000000 E	    call     WriteChar
+ 000013F5  B0 2A		    mov    al , '*'                      
+ 000013F7  E8 00000000 E	    call     WriteChar 
+ 000013FC  B0 20		    mov    al , ' '   
+ 000013FE  E8 00000000 E	    call     WriteChar
+ 00001403  A1 00000004 R	    mov    eax, ranbon
+ 00001408  E8 00000000 E	    call   writedec
+ 0000140D  B0 20		    mov    al , ' '   
+ 0000140F  E8 00000000 E	    call     WriteChar
+ 00001414  B0 3D		    mov    al , '='                      
+ 00001416  E8 00000000 E	    call     WriteChar
+ 0000141B  B0 20		    mov    al , ' '                      
+ 0000141D  E8 00000000 E	    call     WriteChar
+ 00001422  B8 00000000		    mov eax, 0
+ 00001427  BB 00000000		    mov ebx, 0
+ 0000142C  A1 00000000 R	    mov eax, score
+ 00001431  8B 1D 00000004 R	    mov ebx, ranbon
+ 00001437  F7 E3		    mul ebx
+ 00001439  E8 00000000 E	    call writedec
+				    mGotoxy 44, 20
+ 0000143E  52		     1	    PUSH    EDX
+ 0000143F  B6 14	     1	    MOV DH, 20
+ 00001441  B2 2C	     1	    MOV DL, 44
+ 00001443  E8 00000000 E     1	    CALL    Gotoxy
+ 00001448  5A		     1	    POP EDX
+				    .if eax <= 10 && eax >= 0        
+				        mWriteString offset again
+ 00001453  B0 0F	     1	     mov al , 15 + ( 0 * 16 );改變顏色
+ 00001455  E8 00000000 E     1	    call SetTextColor
+ 0000145A  52		     1	    PUSH    EDX
+ 0000145B  BA 00000257 R     1	    MOV EDX, OFFSET offset again
+ 00001460  E8 00000000 E     1	    CALL    WriteString
+ 00001465  5A		     1	    POP EDX
+				    .elseif eax <= 20 && eax > 10 
+				         mWriteString offset good
+ 00001472  B0 0F	     1	     mov al , 15 + ( 0 * 16 );改變顏色
+ 00001474  E8 00000000 E     1	    call SetTextColor
+ 00001479  52		     1	    PUSH    EDX
+ 0000147A  BA 00000277 R     1	    MOV EDX, OFFSET offset good
+ 0000147F  E8 00000000 E     1	    CALL    WriteString
+ 00001484  5A		     1	    POP EDX
+				    .elseif eax > 20    
+				        mWriteString offset excellent
+ 0000148C  B0 0F	     1	     mov al , 15 + ( 0 * 16 );改變顏色
+ 0000148E  E8 00000000 E     1	    call SetTextColor
+ 00001493  52		     1	    PUSH    EDX
+ 00001494  BA 0000029E R     1	    MOV EDX, OFFSET offset excellent
+ 00001499  E8 00000000 E     1	    CALL    WriteString
+ 0000149E  5A		     1	    POP EDX
+				    .endif
+				    mGotoxy 50, 22                                  
+ 0000149F  52		     1	    PUSH    EDX
+ 000014A0  B6 16	     1	    MOV DH, 22
+ 000014A2  B2 32	     1	    MOV DL, 50
+ 000014A4  E8 00000000 E     1	    CALL    Gotoxy
+ 000014A9  5A		     1	    POP EDX
+				    mWrite  "Thanks for playing!!!"
+ 00001A4F		     1	    .data
+ 00001A4F 54 68 61 6E 6B     1	        ??0072 BYTE "Thanks for playing!!!", 0
+	   73 20 66 6F 72
+	   20 70 6C 61 79
+	   69 6E 67 21 21
+	   21 00
+ 000014AA		     1	    .code
+ 000014AA  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000014AC  E8 00000000 E     1	        call SetTextColor
+ 000014B1  52		     1	        PUSH    EDX
+ 000014B2  BA 00001A4F R     1	        MOV EDX, OFFSET ??0072
+ 000014B7  E8 00000000 E     1	        CALL    WriteString
+ 000014BC  5A		     1	        POP EDX
+				    mGotoxy 52, 24                                  
+ 000014BD  52		     1	    PUSH    EDX
+ 000014BE  B6 18	     1	    MOV DH, 24
+ 000014C0  B2 34	     1	    MOV DL, 52
+ 000014C2  E8 00000000 E     1	    CALL    Gotoxy
+ 000014C7  5A		     1	    POP EDX
+				    mWrite  "FJCU CSIE Group 5"
+ 00001A65		     1	    .data
+ 00001A65 46 4A 43 55 20     1	        ??0073 BYTE "FJCU CSIE Group 5", 0
+	   43 53 49 45 20
+	   47 72 6F 75 70
+	   20 35 00
+ 000014C8		     1	    .code
+ 000014C8  B0 0F	     1	        mov al , 15 + ( 0 * 16 );改變顏色
+ 000014CA  E8 00000000 E     1	        call SetTextColor
+ 000014CF  52		     1	        PUSH    EDX
+ 000014D0  BA 00001A65 R     1	        MOV EDX, OFFSET ??0073
+ 000014D5  E8 00000000 E     1	        CALL    WriteString
+ 000014DA  5A		     1	        POP EDX
+
+				    INVOKE  Sleep, 1000
+				                                                            
+				    mGotoxy 25,28
+ 000014E5  52		     1	    PUSH    EDX
+ 000014E6  B6 1C	     1	    MOV DH, 28
+ 000014E8  B2 19	     1	    MOV DL, 25
+ 000014EA  E8 00000000 E     1	    CALL    Gotoxy
+ 000014EF  5A		     1	    POP EDX
+				        
+ 000014F0  C3			    ret  
+ 000014F1			gameover endp
+
+				;主控---------------------------------------
+ 000014F1			startgame proc
+ 000014F1  E8 FFFFEB9A		    call    DrawFirstScreen  ;主頁
+ 000014F6			L0: 
+ 000014F6  E8 FFFFEEA9		    call    rule             ;規則
+ 000014FB  E8 FFFFF091		    call    entername        ;輸入使用者名稱
+ 00001500  E8 FFFFF240		    call    ChooseLev        ;選擇難易度
+ 00001505			L1: 
+ 00001505  E8 00000000 E	    call    ClrScr
+ 0000150A  E8 FFFFF4DD		    call    createfood       ;食物
+ 0000150F  E8 FFFFEAF8		    call    PrintWalls       ;邊界
+ 00001514			L2:
+ 00001514  E8 FFFFF5B4		    call    grow             ;是否有吃到食物 如果有就加長 如果沒有就繼續
+ 00001519  E8 FFFFF6AE		    call    presskey         ;是否按下按鈕
+ 0000151E			L3: 
+ 0000151E  E8 FFFFF7D2		    call    IsCollision      ;遊戲是否結束
+				    .if eax != 1
+ 00001528  E8 FFFFF80A		        call movesnake
+ 0000152D  E8 FFFFF3D5		        call drawHUD
+ 00001532  EB E0		        jmp L2
+				    .else
+				        ;INVOKE  Sleep, 10
+ 00001536  E8 FFFFF936		        call    bonus
+ 0000153B  E8 FFFFFD27		        call    gameover
+				    .endif
+				    ;INVOKE  ExitProcess, 0
+ 00001540  C3			    ret
+ 00001541			startgame endp
+				;------------------------------------------
+				END main
+Microsoft (R) Macro Assembler Version 14.27.29111.0	    01/03/21 18:43:41
+main.asm						     Symbols 2 - 1
+
+
+
+
+Macros:
+
+                N a m e                 Type
+
+mGotoxy  . . . . . . . . . . . .	Proc
+mReadString  . . . . . . . . . .	Proc
+mWriteString . . . . . . . . . .	Proc
+mWrite . . . . . . . . . . . . .	Proc
+
+
+Structures and Unions:
+
+                N a m e                  Size
+                                         Offset      Type
+
+AXIS . . . . . . . . . . . . . .	 00000002
+  x  . . . . . . . . . . . . . .	 00000000	 Byte
+  y  . . . . . . . . . . . . . .	 00000001	 Byte
+CONSOLE_CURSOR_INFO  . . . . . .	 00000008
+  dwSize . . . . . . . . . . . .	 00000000	 DWord
+  bVisible . . . . . . . . . . .	 00000004	 DWord
+CONSOLE_SCREEN_BUFFER_INFO . . .	 00000016
+  dwSize . . . . . . . . . . . .	 00000000	 DWord
+  dwCursorPosition . . . . . . .	 00000004	 DWord
+  wAttributes  . . . . . . . . .	 00000008	 Word
+  srWindow . . . . . . . . . . .	 0000000A	 QWord
+  dwMaximumWindowSize  . . . . .	 00000012	 DWord
+COORD  . . . . . . . . . . . . .	 00000004
+  X  . . . . . . . . . . . . . .	 00000000	 Word
+  Y  . . . . . . . . . . . . . .	 00000002	 Word
+FILETIME . . . . . . . . . . . .	 00000008
+  loDateTime . . . . . . . . . .	 00000000	 DWord
+  hiDateTime . . . . . . . . . .	 00000004	 DWord
+FOCUS_EVENT_RECORD . . . . . . .	 00000004
+  bSetFocus  . . . . . . . . . .	 00000000	 DWord
+FPU_ENVIRON  . . . . . . . . . .	 0000001C
+  controlWord  . . . . . . . . .	 00000000	 Word
+  statusWord . . . . . . . . . .	 00000004	 Word
+  tagWord  . . . . . . . . . . .	 00000008	 Word
+  instrPointerOffset . . . . . .	 0000000C	 DWord
+  instrPointerSelector . . . . .	 00000010	 DWord
+  operandPointerOffset . . . . .	 00000014	 DWord
+  operandPointerSelector . . . .	 00000018	 Word
+INPUT_RECORD . . . . . . . . . .	 00000014
+  EventType  . . . . . . . . . .	 00000000	 Word
+  Event  . . . . . . . . . . . .	 00000004	 XmmWord
+  bKeyDown . . . . . . . . . . .	 00000000	 DWord
+  wRepeatCount . . . . . . . . .	 00000004	 Word
+  wVirtualKeyCode  . . . . . . .	 00000006	 Word
+  wVirtualScanCode . . . . . . .	 00000008	 Word
+  uChar  . . . . . . . . . . . .	 0000000A	 Word
+  UnicodeChar  . . . . . . . . .	 00000000	 Word
+  AsciiChar  . . . . . . . . . .	 00000000	 Byte
+  dwControlKeyState  . . . . . .	 0000000C	 DWord
+  dwMousePosition  . . . . . . .	 00000000	 DWord
+  dwButtonState  . . . . . . . .	 00000004	 DWord
+  dwMouseControlKeyState . . . .	 00000008	 DWord
+  dwEventFlags . . . . . . . . .	 0000000C	 DWord
+  dwSize . . . . . . . . . . . .	 00000000	 DWord
+  dwCommandId  . . . . . . . . .	 00000000	 DWord
+  bSetFocus  . . . . . . . . . .	 00000000	 DWord
+KEY_EVENT_RECORD . . . . . . . .	 00000010
+  bKeyDown . . . . . . . . . . .	 00000000	 DWord
+  wRepeatCount . . . . . . . . .	 00000004	 Word
+  wVirtualKeyCode  . . . . . . .	 00000006	 Word
+  wVirtualScanCode . . . . . . .	 00000008	 Word
+  uChar  . . . . . . . . . . . .	 0000000A	 Word
+  UnicodeChar  . . . . . . . . .	 00000000	 Word
+  AsciiChar  . . . . . . . . . .	 00000000	 Byte
+  dwControlKeyState  . . . . . .	 0000000C	 DWord
+MENU_EVENT_RECORD  . . . . . . .	 00000004
+  dwCommandId  . . . . . . . . .	 00000000	 DWord
+MOUSE_EVENT_RECORD . . . . . . .	 00000010
+  dwMousePosition  . . . . . . .	 00000000	 DWord
+  dwButtonState  . . . . . . . .	 00000004	 DWord
+  dwMouseControlKeyState . . . .	 00000008	 DWord
+  dwEventFlags . . . . . . . . .	 0000000C	 DWord
+SMALL_RECT . . . . . . . . . . .	 00000008
+  Left . . . . . . . . . . . . .	 00000000	 Word
+  Top  . . . . . . . . . . . . .	 00000002	 Word
+  Right  . . . . . . . . . . . .	 00000004	 Word
+  Bottom . . . . . . . . . . . .	 00000006	 Word
+SYSTEMTIME . . . . . . . . . . .	 00000010
+  wYear  . . . . . . . . . . . .	 00000000	 Word
+  wMonth . . . . . . . . . . . .	 00000002	 Word
+  wDayOfWeek . . . . . . . . . .	 00000004	 Word
+  wDay . . . . . . . . . . . . .	 00000006	 Word
+  wHour  . . . . . . . . . . . .	 00000008	 Word
+  wMinute  . . . . . . . . . . .	 0000000A	 Word
+  wSecond  . . . . . . . . . . .	 0000000C	 Word
+  wMilliseconds  . . . . . . . .	 0000000E	 Word
+WINDOW_BUFFER_SIZE_RECORD  . . .	 00000004
+  dwSize . . . . . . . . . . . .	 00000000	 DWord
+
+
+Segments and Groups:
+
+                N a m e                 Size     Length   Align   Combine Class
+
+FLAT . . . . . . . . . . . . . .	GROUP
+STACK  . . . . . . . . . . . . .	32 Bit	 00001000 Para	  Stack	  'STACK'	 
+_DATA  . . . . . . . . . . . . .	32 Bit	 00001A77 Para	  Public  'DATA'	
+_TEXT  . . . . . . . . . . . . .	32 Bit	 00001541 Para	  Public  'CODE'	
+
+
+Procedures, parameters, and locals:
+
+                N a m e                 Type     Value    Attr
+
+ChooseLev  . . . . . . . . . . .	P Near	 00000745 _TEXT	Length= 000001C2 Public STDCALL
+  L1 . . . . . . . . . . . . . .	L Near	 00000799 _TEXT	
+CloseFile  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+CloseHandle  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Clrscr . . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+CreateFileA  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+CreateOutputFile . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Crlf . . . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Delay  . . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+DrawFirstScreen  . . . . . . . .	P Near	 00000090 _TEXT	Length= 00000314 Public STDCALL
+DumpMem  . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+DumpRegs . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ExitProcess  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+FileTimeToDosDateTime  . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+FileTimeToSystemTime . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+FlushConsoleInputBuffer  . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+FormatMessageA . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetCommandLineA  . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetCommandTail . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetConsoleCP . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetConsoleCursorInfo . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetConsoleMode . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetConsoleScreenBufferInfo . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetDateTime  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetFileTime  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetKeyState  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetLastError . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetLocalTime . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetMaxXY . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetMseconds  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetNumberOfConsoleInputEvents  .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetProcessHeap . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetStdHandle . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetSystemTime  . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetTextColor . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetTickCount . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Gotoxy . . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+HeapAlloc  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+HeapCreate . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+HeapDestroy  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+HeapFree . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+HeapSize . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+IsCollision  . . . . . . . . . .	P Near	 00000CF5 _TEXT	Length= 00000042 Public STDCALL
+  L1 . . . . . . . . . . . . . .	L Near	 00000D2B _TEXT	
+  L2 . . . . . . . . . . . . . .	L Near	 00000D31 _TEXT	
+IsDigit  . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+LocalFree  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+MessageBoxA  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+MsgBoxAsk  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+MsgBox . . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+OpenInputFile  . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ParseDecimal32 . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ParseInteger32 . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+PeekConsoleInputA  . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+PrintWalls . . . . . . . . . . .	P Near	 0000000C _TEXT	Length= 00000084 Public STDCALL
+  X00  . . . . . . . . . . . . .	L Near	 0000004A _TEXT	
+  X01  . . . . . . . . . . . . .	L Near	 0000008F _TEXT	
+Random32 . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+RandomRange  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Randomize  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadChar . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadConsoleA . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadConsoleInputA  . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadDec  . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadFile . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadFloat  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadFromFile . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadHex  . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadInt  . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadKeyFlush . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadKey  . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadString . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetConsoleCursorInfo . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetConsoleCursorPosition . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetConsoleMode . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetConsoleScreenBufferSize . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetConsoleTextAttribute  . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetConsoleTitleA . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetConsoleWindowInfo . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetDirection . . . . . . . . . .	P Near	 00000BA1 _TEXT	Length= 0000002B Public STDCALL
+  R  . . . . . . . . . . . . . .	Byte	 bp + 00000008
+  L  . . . . . . . . . . . . . .	Byte	 bp + 0000000C
+  U  . . . . . . . . . . . . . .	Byte	 bp + 00000010
+  D  . . . . . . . . . . . . . .	Byte	 bp + 00000014
+SetFilePointer . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetLocalTime . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetTextColor . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ShowFPUStack . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Sleep  . . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+StrLength  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Str_compare  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Str_copy . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Str_length . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Str_trim . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Str_ucase  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SystemTimeToFileTime . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WaitMsg  . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteBinB  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteBin . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteChar  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteConsoleA  . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteConsoleOutputAttribute  . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteConsoleOutputCharacterA . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteDec . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteFile  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteFloat . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteHexB  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteHex . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteInt . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteStackFrameName  . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteStackFrame  . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteString  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteToFile  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteWindowsMsg  . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+bonus  . . . . . . . . . . . . .	P Near	 00000E71 _TEXT	Length= 000003F6 Public STDCALL
+createfood . . . . . . . . . . .	P Near	 000009EC _TEXT	Length= 000000E1 Public STDCALL
+drawHUD  . . . . . . . . . . . .	P Near	 00000907 _TEXT	Length= 000000E5 Public STDCALL
+entername  . . . . . . . . . . .	P Near	 00000591 _TEXT	Length= 000001B4 Public STDCALL
+gameover . . . . . . . . . . . .	P Near	 00001267 _TEXT	Length= 0000028A Public STDCALL
+grow . . . . . . . . . . . . . .	P Near	 00000ACD _TEXT	Length= 000000D4 Public STDCALL
+main . . . . . . . . . . . . . .	P Near	 00000000 _TEXT	Length= 0000000C Public STDCALL
+movesnake  . . . . . . . . . . .	P Near	 00000D37 _TEXT	Length= 0000013A Public STDCALL
+  L1 . . . . . . . . . . . . . .	L Near	 00000E44 _TEXT	
+  L2 . . . . . . . . . . . . . .	L Near	 00000E60 _TEXT	
+  L3 . . . . . . . . . . . . . .	L Near	 00000E70 _TEXT	
+presskey . . . . . . . . . . . .	P Near	 00000BCC _TEXT	Length= 00000129 Public STDCALL
+  ddown  . . . . . . . . . . . .	L Near	 00000BCC _TEXT	
+  uup  . . . . . . . . . . . . .	L Near	 00000BFA _TEXT	
+  lleft  . . . . . . . . . . . .	L Near	 00000C28 _TEXT	
+  rright . . . . . . . . . . . .	L Near	 00000C56 _TEXT	
+  rightpress . . . . . . . . . .	L Near	 00000C84 _TEXT	
+  leftpress  . . . . . . . . . .	L Near	 00000CA0 _TEXT	
+  uppress  . . . . . . . . . . .	L Near	 00000CBC _TEXT	
+  downpress  . . . . . . . . . .	L Near	 00000CD8 _TEXT	
+  breakk . . . . . . . . . . . .	L Near	 00000CF4 _TEXT	
+printf . . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External C
+rule . . . . . . . . . . . . . .	P Near	 000003A4 _TEXT	Length= 000001ED Public STDCALL
+scanf  . . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External C
+startgame  . . . . . . . . . . .	P Near	 000014F1 _TEXT	Length= 00000050 Public STDCALL
+  L0 . . . . . . . . . . . . . .	L Near	 000014F6 _TEXT	
+  L1 . . . . . . . . . . . . . .	L Near	 00001505 _TEXT	
+  L2 . . . . . . . . . . . . . .	L Near	 00001514 _TEXT	
+  L3 . . . . . . . . . . . . . .	L Near	 0000151E _TEXT	
+wsprintfA  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External C
+
+
+Symbols:
+
+                N a m e                 Type     Value    Attr
+
+??0000 . . . . . . . . . . . . .	Byte	 000002C3 _DATA	
+??0001 . . . . . . . . . . . . .	Byte	 00000338 _DATA	
+??0002 . . . . . . . . . . . . .	Byte	 000003AD _DATA	
+??0003 . . . . . . . . . . . . .	Byte	 000003AF _DATA	
+??0004 . . . . . . . . . . . . .	Byte	 000003B1 _DATA	
+??0005 . . . . . . . . . . . . .	Byte	 000003EB _DATA	
+??0006 . . . . . . . . . . . . .	Byte	 00000425 _DATA	
+??0007 . . . . . . . . . . . . .	Byte	 0000045A _DATA	
+??0008 . . . . . . . . . . . . .	Byte	 00000495 _DATA	
+??0009 . . . . . . . . . . . . .	Byte	 000004CF _DATA	
+??000A . . . . . . . . . . . . .	Byte	 0000050A _DATA	
+??000B . . . . . . . . . . . . .	Byte	 00000563 _DATA	
+??000C . . . . . . . . . . . . .	Byte	 000005C0 _DATA	
+??000D . . . . . . . . . . . . .	Byte	 0000061E _DATA	
+??000E . . . . . . . . . . . . .	Byte	 0000067D _DATA	
+??000F . . . . . . . . . . . . .	Byte	 000006DD _DATA	
+??0010 . . . . . . . . . . . . .	Byte	 0000073D _DATA	
+??0011 . . . . . . . . . . . . .	Byte	 0000079D _DATA	
+??0012 . . . . . . . . . . . . .	Byte	 000007FD _DATA	
+??0013 . . . . . . . . . . . . .	Byte	 0000085D _DATA	
+??0014 . . . . . . . . . . . . .	Byte	 000008BD _DATA	
+??0015 . . . . . . . . . . . . .	Byte	 0000091D _DATA	
+??0016 . . . . . . . . . . . . .	Byte	 0000097D _DATA	
+??0017 . . . . . . . . . . . . .	Byte	 000009DD _DATA	
+??0018 . . . . . . . . . . . . .	Byte	 00000A3D _DATA	
+??0019 . . . . . . . . . . . . .	Byte	 00000A63 _DATA	
+??001A . . . . . . . . . . . . .	Byte	 00000A6B _DATA	
+??001B . . . . . . . . . . . . .	Byte	 00000A93 _DATA	
+??001C . . . . . . . . . . . . .	Byte	 00000ABB _DATA	
+??001D . . . . . . . . . . . . .	Byte	 00000AE3 _DATA	
+??001E . . . . . . . . . . . . .	Byte	 00000B3A _DATA	
+??001F . . . . . . . . . . . . .	Byte	 00000B92 _DATA	
+??0020 . . . . . . . . . . . . .	Byte	 00000BE6 _DATA	
+??0021 . . . . . . . . . . . . .	Byte	 00000C3D _DATA	
+??0022 . . . . . . . . . . . . .	Byte	 00000C95 _DATA	
+??0023 . . . . . . . . . . . . .	Byte	 00000CEC _DATA	
+??0024 . . . . . . . . . . . . .	Byte	 00000D44 _DATA	
+??0025 . . . . . . . . . . . . .	Byte	 00000D5F _DATA	
+??0026 . . . . . . . . . . . . .	Byte	 00000D97 _DATA	
+??0027 . . . . . . . . . . . . .	Byte	 00000DA9 _DATA	
+??0028 . . . . . . . . . . . . .	Byte	 00000DE0 _DATA	
+??0029 . . . . . . . . . . . . .	Byte	 00000E19 _DATA	
+??002A . . . . . . . . . . . . .	Byte	 00000E43 _DATA	
+??002B . . . . . . . . . . . . .	Byte	 00000E6C _DATA	
+??002C . . . . . . . . . . . . .	Byte	 00000E82 _DATA	
+??002D . . . . . . . . . . . . .	Byte	 00000EF1 _DATA	
+??002E . . . . . . . . . . . . .	Byte	 00000F61 _DATA	
+??002F . . . . . . . . . . . . .	Byte	 00000FD0 _DATA	
+??0030 . . . . . . . . . . . . .	Byte	 0000103F _DATA	
+??0031 . . . . . . . . . . . . .	Byte	 000010AE _DATA	
+??0032 . . . . . . . . . . . . .	Byte	 0000111D _DATA	
+??0033 . . . . . . . . . . . . .	Byte	 0000118C _DATA	
+??0034 . . . . . . . . . . . . .	Byte	 000011FB _DATA	
+??0035 . . . . . . . . . . . . .	Byte	 0000126A _DATA	
+??0036 . . . . . . . . . . . . .	Byte	 000012D9 _DATA	
+??0037 . . . . . . . . . . . . .	Byte	 00001348 _DATA	
+??0038 . . . . . . . . . . . . .	Byte	 00001360 _DATA	
+??0039 . . . . . . . . . . . . .	Byte	 0000136C _DATA	
+??003A . . . . . . . . . . . . .	Byte	 00001374 _DATA	
+??003B . . . . . . . . . . . . .	Byte	 000013A0 _DATA	
+??003C . . . . . . . . . . . . .	Byte	 000013B4 _DATA	
+??003D . . . . . . . . . . . . .	Byte	 000013C7 _DATA	
+??003E . . . . . . . . . . . . .	Byte	 000013DC _DATA	
+??003F . . . . . . . . . . . . .	Byte	 000013F1 _DATA	
+??0040 . . . . . . . . . . . . .	Byte	 00001404 _DATA	
+??0041 . . . . . . . . . . . . .	Byte	 00001418 _DATA	
+??0042 . . . . . . . . . . . . .	Byte	 0000141F _DATA	
+??0043 . . . . . . . . . . . . .	Byte	 00001427 _DATA	
+??0044 . . . . . . . . . . . . .	Byte	 0000142C _DATA	
+??0045 . . . . . . . . . . . . .	Byte	 00001433 _DATA	
+??0046 . . . . . . . . . . . . .	Byte	 0000143A _DATA	
+??0047 . . . . . . . . . . . . .	Byte	 0000143F _DATA	
+??0048 . . . . . . . . . . . . .	Byte	 00001447 _DATA	
+??0049 . . . . . . . . . . . . .	Byte	 00001449 _DATA	
+??004A . . . . . . . . . . . . .	Byte	 00001488 _DATA	
+??004B . . . . . . . . . . . . .	Byte	 000014C8 _DATA	
+??004C . . . . . . . . . . . . .	Byte	 00001500 _DATA	
+??004D . . . . . . . . . . . . .	Byte	 00001538 _DATA	
+??004E . . . . . . . . . . . . .	Byte	 00001577 _DATA	
+??004F . . . . . . . . . . . . .	Byte	 000015B7 _DATA	
+??0050 . . . . . . . . . . . . .	Byte	 000015F7 _DATA	
+??0051 . . . . . . . . . . . . .	Byte	 00001637 _DATA	
+??0052 . . . . . . . . . . . . .	Byte	 00001677 _DATA	
+??0053 . . . . . . . . . . . . .	Byte	 00001682 _DATA	
+??0054 . . . . . . . . . . . . .	Byte	 0000168D _DATA	
+??0055 . . . . . . . . . . . . .	Byte	 00001698 _DATA	
+??0056 . . . . . . . . . . . . .	Byte	 000016A3 _DATA	
+??0057 . . . . . . . . . . . . .	Byte	 000016AE _DATA	
+??0058 . . . . . . . . . . . . .	Byte	 000016BC _DATA	
+??0059 . . . . . . . . . . . . .	Byte	 000016CB _DATA	
+??005A . . . . . . . . . . . . .	Byte	 000016DB _DATA	
+??005B . . . . . . . . . . . . .	Byte	 000016EA _DATA	
+??005C . . . . . . . . . . . . .	Byte	 000016F9 _DATA	
+??005D . . . . . . . . . . . . .	Byte	 00001708 _DATA	
+??005E . . . . . . . . . . . . .	Byte	 00001717 _DATA	
+??005F . . . . . . . . . . . . .	Byte	 00001725 _DATA	
+??0060 . . . . . . . . . . . . .	Byte	 00001734 _DATA	
+??0061 . . . . . . . . . . . . .	Byte	 00001743 _DATA	
+??0062 . . . . . . . . . . . . .	Byte	 00001752 _DATA	
+??0063 . . . . . . . . . . . . .	Byte	 00001761 _DATA	
+??0064 . . . . . . . . . . . . .	Byte	 00001770 _DATA	
+??0065 . . . . . . . . . . . . .	Byte	 0000177F _DATA	
+??0066 . . . . . . . . . . . . .	Byte	 0000178E _DATA	
+??0067 . . . . . . . . . . . . .	Byte	 0000179E _DATA	
+??0068 . . . . . . . . . . . . .	Byte	 000017AD _DATA	
+??0069 . . . . . . . . . . . . .	Byte	 00001804 _DATA	
+??006A . . . . . . . . . . . . .	Byte	 0000185C _DATA	
+??006B . . . . . . . . . . . . .	Byte	 000018B5 _DATA	
+??006C . . . . . . . . . . . . .	Byte	 0000190E _DATA	
+??006D . . . . . . . . . . . . .	Byte	 00001966 _DATA	
+??006E . . . . . . . . . . . . .	Byte	 000019BD _DATA	
+??006F . . . . . . . . . . . . .	Byte	 00001A15 _DATA	
+??0070 . . . . . . . . . . . . .	Byte	 00001A1B _DATA	
+??0071 . . . . . . . . . . . . .	Byte	 00001A3A _DATA	
+??0072 . . . . . . . . . . . . .	Byte	 00001A4F _DATA	
+??0073 . . . . . . . . . . . . .	Byte	 00001A65 _DATA	
+@CodeSize  . . . . . . . . . . .	Number	 00000000h   
+@DataSize  . . . . . . . . . . .	Number	 00000000h   
+@Interface . . . . . . . . . . .	Number	 00000003h   
+@Model . . . . . . . . . . . . .	Number	 00000007h   
+@code  . . . . . . . . . . . . .	Text   	 _TEXT
+@data  . . . . . . . . . . . . .	Text   	 FLAT
+@fardata?  . . . . . . . . . . .	Text   	 FLAT
+@fardata . . . . . . . . . . . .	Text   	 FLAT
+@stack . . . . . . . . . . . . .	Text   	 FLAT
+ALT_MASK . . . . . . . . . . . .	Number	 00000003h   
+CAPSLOCK_ON  . . . . . . . . . .	Number	 00000080h   
+CREATE_ALWAYS  . . . . . . . . .	Number	 00000002h   
+CREATE_NEW . . . . . . . . . . .	Number	 00000001h   
+CTRL_MASK  . . . . . . . . . . .	Number	 0000000Ch   
+CreateFile . . . . . . . . . . .	Text   	 CreateFileA
+DOWN . . . . . . . . . . . . . .	Byte	 0000022D _DATA	
+DO_NOT_SHARE . . . . . . . . . .	Number	 00000000h   
+ENABLE_ECHO_INPUT  . . . . . . .	Number	 00000004h   
+ENABLE_LINE_INPUT  . . . . . . .	Number	 00000002h   
+ENABLE_MOUSE_INPUT . . . . . . .	Number	 00000010h   
+ENABLE_PROCESSED_INPUT . . . . .	Number	 00000001h   
+ENABLE_PROCESSED_OUTPUT  . . . .	Number	 00000001h   
+ENABLE_WINDOW_INPUT  . . . . . .	Number	 00000008h   
+ENABLE_WRAP_AT_EOL_OUTPUT  . . .	Number	 00000002h   
+ENHANCED_KEY . . . . . . . . . .	Number	 00000100h   
+FALSE  . . . . . . . . . . . . .	Number	 00000000h   
+FILE_APPEND_DATA . . . . . . . .	Number	 00000004h   
+FILE_ATTRIBUTE_ARCHIVE . . . . .	Number	 00000020h   
+FILE_ATTRIBUTE_COMPRESSED  . . .	Number	 00000800h   
+FILE_ATTRIBUTE_DEVICE  . . . . .	Number	 00000040h   
+FILE_ATTRIBUTE_DIRECTORY . . . .	Number	 00000010h   
+FILE_ATTRIBUTE_ENCRYPTED . . . .	Number	 00004000h   
+FILE_ATTRIBUTE_HIDDEN  . . . . .	Number	 00000002h   
+FILE_ATTRIBUTE_NORMAL  . . . . .	Number	 00000080h   
+FILE_ATTRIBUTE_NOT_CONTENT_INDEXED .	Number	 00002000h   
+FILE_ATTRIBUTE_OFFLINE . . . . .	Number	 00001000h   
+FILE_ATTRIBUTE_READONLY  . . . .	Number	 00000001h   
+FILE_ATTRIBUTE_REPARSE_POINT . .	Number	 00000400h   
+FILE_ATTRIBUTE_SPARSE_FILE . . .	Number	 00000200h   
+FILE_ATTRIBUTE_SYSTEM  . . . . .	Number	 00000004h   
+FILE_ATTRIBUTE_TEMPORARY . . . .	Number	 00000100h   
+FILE_BEGIN . . . . . . . . . . .	Number	 00000000h   
+FILE_CURRENT . . . . . . . . . .	Number	 00000001h   
+FILE_DELETE_CHILD  . . . . . . .	Number	 00000040h   
+FILE_END . . . . . . . . . . . .	Number	 00000002h   
+FILE_READ_DATA . . . . . . . . .	Number	 00000001h   
+FILE_SHARE_DELETE  . . . . . . .	Number	 00000004h   
+FILE_SHARE_READ  . . . . . . . .	Number	 00000001h   
+FILE_SHARE_WRITE . . . . . . . .	Number	 00000002h   
+FILE_WRITE_DATA  . . . . . . . .	Number	 00000002h   
+FOCUS_EVENT  . . . . . . . . . .	Number	 00000010h   
+FORMAT_MESSAGE_ALLOCATE_BUFFER .	Number	 00000100h   
+FORMAT_MESSAGE_FROM_SYSTEM . . .	Number	 00001000h   
+FormatMessage  . . . . . . . . .	Text   	 FormatMessageA
+GENERIC_ALL  . . . . . . . . . .	Number	 10000000h   
+GENERIC_EXECUTE  . . . . . . . .	Number	 20000000h   
+GENERIC_READ . . . . . . . . . .	Number	 -80000000h   
+GENERIC_WRITE  . . . . . . . . .	Number	 40000000h   
+GetCommandLine . . . . . . . . .	Text   	 GetCommandLineA
+HANDLE . . . . . . . . . . . . .	Text   	 DWORD
+HEAP_GENERATE_EXCEPTIONS . . . .	Number	 00000004h   
+HEAP_GROWABLE  . . . . . . . . .	Number	 00000002h   
+HEAP_NO_SERIALIZE  . . . . . . .	Number	 00000001h   
+HEAP_REALLOC_IN_PLACE_ONLY . . .	Number	 00000010h   
+HEAP_ZERO_MEMORY . . . . . . . .	Number	 00000008h   
+IDABORT  . . . . . . . . . . . .	Number	 00000003h   
+IDCANCEL . . . . . . . . . . . .	Number	 00000002h   
+IDCLOSE  . . . . . . . . . . . .	Number	 00000008h   
+IDCONTINUE . . . . . . . . . . .	Number	 0000000Bh   
+IDHELP . . . . . . . . . . . . .	Number	 00000009h   
+IDIGNORE . . . . . . . . . . . .	Number	 00000005h   
+IDNO . . . . . . . . . . . . . .	Number	 00000007h   
+IDOK . . . . . . . . . . . . . .	Number	 00000001h   
+IDRETRY  . . . . . . . . . . . .	Number	 00000004h   
+IDTIMEOUT  . . . . . . . . . . .	Number	 00007D00h   
+IDTRYAGAIN . . . . . . . . . . .	Number	 0000000Ah   
+IDYES  . . . . . . . . . . . . .	Number	 00000006h   
+INVALID_HANDLE_VALUE . . . . . .	Number	 -00000001h   
+KBDOWN_FLAG  . . . . . . . . . .	Number	 00000001h   
+KEY_EVENT  . . . . . . . . . . .	Number	 00000001h   
+KEY_MASKS  . . . . . . . . . . .	Number	 0000001Fh   
+LEFT_ALT_PRESSED . . . . . . . .	Number	 00000002h   
+LEFT_CTRL_PRESSED  . . . . . . .	Number	 00000008h   
+LEFT . . . . . . . . . . . . . .	Byte	 0000022A _DATA	
+MB_ABORTRETRYIGNORE  . . . . . .	Number	 00000002h   
+MB_APPLMODAL . . . . . . . . . .	Number	 00000000h   
+MB_CANCELTRYCONTINUE . . . . . .	Number	 00000006h   
+MB_DEFBUTTON1  . . . . . . . . .	Number	 00000000h   
+MB_DEFBUTTON2  . . . . . . . . .	Number	 00000100h   
+MB_DEFBUTTON3  . . . . . . . . .	Number	 00000200h   
+MB_DEFBUTTON4  . . . . . . . . .	Number	 00000300h   
+MB_HELP  . . . . . . . . . . . .	Number	 00004000h   
+MB_ICONASTERISK  . . . . . . . .	Number	 00000040h   
+MB_ICONERROR . . . . . . . . . .	Number	 00000010h   
+MB_ICONEXCLAMATION . . . . . . .	Number	 00000030h   
+MB_ICONHAND  . . . . . . . . . .	Number	 00000010h   
+MB_ICONINFORMATION . . . . . . .	Number	 00000040h   
+MB_ICONQUESTION  . . . . . . . .	Number	 00000020h   
+MB_ICONSTOP  . . . . . . . . . .	Number	 00000010h   
+MB_ICONWARNING . . . . . . . . .	Number	 00000030h   
+MB_OKCANCEL  . . . . . . . . . .	Number	 00000001h   
+MB_OK  . . . . . . . . . . . . .	Number	 00000000h   
+MB_RETRYCANCEL . . . . . . . . .	Number	 00000005h   
+MB_SYSTEMMODAL . . . . . . . . .	Number	 00001000h   
+MB_TASKMODAL . . . . . . . . . .	Number	 00002000h   
+MB_USERICON  . . . . . . . . . .	Number	 00000080h   
+MB_YESNOCANCEL . . . . . . . . .	Number	 00000003h   
+MB_YESNO . . . . . . . . . . . .	Number	 00000004h   
+MENU_EVENT . . . . . . . . . . .	Number	 00000008h   
+MOUSE_EVENT  . . . . . . . . . .	Number	 00000002h   
+MessageBox . . . . . . . . . . .	Text   	 MessageBoxA
+NULL . . . . . . . . . . . . . .	Number	 00000000h   
+NUMLOCK_ON . . . . . . . . . . .	Number	 00000020h   
+OPEN_ALWAYS  . . . . . . . . . .	Number	 00000004h   
+OPEN_EXISTING  . . . . . . . . .	Number	 00000003h   
+PeekConsoleInput . . . . . . . .	Text   	 PeekConsoleInputA
+RIGHT_ALT_PRESSED  . . . . . . .	Number	 00000001h   
+RIGHT_CTRL_PRESSED . . . . . . .	Number	 00000004h   
+RIGHT  . . . . . . . . . . . . .	Byte	 0000022B _DATA	
+ReadConsoleInput . . . . . . . .	Text   	 ReadConsoleInputA
+ReadConsole  . . . . . . . . . .	Text   	 ReadConsoleA
+SCROLLLOCK_ON  . . . . . . . . .	Number	 00000040h   
+SHIFT_MASK . . . . . . . . . . .	Number	 00000010h   
+SHIFT_PRESSED  . . . . . . . . .	Number	 00000010h   
+STD_ERROR_HANDLE . . . . . . . .	Number	 -0000000Ch   
+STD_INPUT_HANDLE . . . . . . . .	Number	 -0000000Ah   
+STD_OUTPUT_HANDLE  . . . . . . .	Number	 -0000000Bh   
+SetConsoleTitle  . . . . . . . .	Text   	 SetConsoleTitleA
+SnakeBody  . . . . . . . . . . .	AXIS	 0000000A _DATA	
+TAB  . . . . . . . . . . . . . .	Number	 00000009h   
+TRUE . . . . . . . . . . . . . .	Number	 00000001h   
+TRUNCATE_EXISTING  . . . . . . .	Number	 00000005h   
+UP . . . . . . . . . . . . . . .	Byte	 0000022C _DATA	
+VK_11  . . . . . . . . . . . . .	Number	 000000BDh   
+VK_12  . . . . . . . . . . . . .	Number	 000000BBh   
+VK_ADD . . . . . . . . . . . . .	Number	 0000006Bh   
+VK_BACK  . . . . . . . . . . . .	Number	 00000008h   
+VK_CANCEL  . . . . . . . . . . .	Number	 00000003h   
+VK_CAPITAL . . . . . . . . . . .	Number	 00000014h   
+VK_CLEAR . . . . . . . . . . . .	Number	 0000000Ch   
+VK_CONTROL . . . . . . . . . . .	Number	 00000011h   
+VK_DECIMAL . . . . . . . . . . .	Number	 0000006Eh   
+VK_DELETE  . . . . . . . . . . .	Number	 0000002Eh   
+VK_DIVIDE  . . . . . . . . . . .	Number	 0000006Fh   
+VK_DOWN  . . . . . . . . . . . .	Number	 00000028h   
+VK_END . . . . . . . . . . . . .	Number	 00000023h   
+VK_ESCAPE  . . . . . . . . . . .	Number	 0000001Bh   
+VK_EXECUTE . . . . . . . . . . .	Number	 0000002Bh   
+VK_F10 . . . . . . . . . . . . .	Number	 00000079h   
+VK_F11 . . . . . . . . . . . . .	Number	 0000007Ah   
+VK_F12 . . . . . . . . . . . . .	Number	 0000007Bh   
+VK_F13 . . . . . . . . . . . . .	Number	 0000007Ch   
+VK_F14 . . . . . . . . . . . . .	Number	 0000007Dh   
+VK_F15 . . . . . . . . . . . . .	Number	 0000007Eh   
+VK_F16 . . . . . . . . . . . . .	Number	 0000007Fh   
+VK_F17 . . . . . . . . . . . . .	Number	 00000080h   
+VK_F18 . . . . . . . . . . . . .	Number	 00000081h   
+VK_F19 . . . . . . . . . . . . .	Number	 00000082h   
+VK_F1  . . . . . . . . . . . . .	Number	 00000070h   
+VK_F20 . . . . . . . . . . . . .	Number	 00000083h   
+VK_F21 . . . . . . . . . . . . .	Number	 00000084h   
+VK_F22 . . . . . . . . . . . . .	Number	 00000085h   
+VK_F23 . . . . . . . . . . . . .	Number	 00000086h   
+VK_F24 . . . . . . . . . . . . .	Number	 00000087h   
+VK_F2  . . . . . . . . . . . . .	Number	 00000071h   
+VK_F3  . . . . . . . . . . . . .	Number	 00000072h   
+VK_F4  . . . . . . . . . . . . .	Number	 00000073h   
+VK_F5  . . . . . . . . . . . . .	Number	 00000074h   
+VK_F6  . . . . . . . . . . . . .	Number	 00000075h   
+VK_F7  . . . . . . . . . . . . .	Number	 00000076h   
+VK_F8  . . . . . . . . . . . . .	Number	 00000077h   
+VK_F9  . . . . . . . . . . . . .	Number	 00000078h   
+VK_HELP  . . . . . . . . . . . .	Number	 0000002Fh   
+VK_HOME  . . . . . . . . . . . .	Number	 00000024h   
+VK_INSERT  . . . . . . . . . . .	Number	 0000002Dh   
+VK_LBUTTON . . . . . . . . . . .	Number	 00000001h   
+VK_LCONTROL  . . . . . . . . . .	Number	 000000A2h   
+VK_LEFT  . . . . . . . . . . . .	Number	 00000025h   
+VK_LMENU . . . . . . . . . . . .	Number	 000000A4h   
+VK_LSHIFT  . . . . . . . . . . .	Number	 000000A0h   
+VK_MENU  . . . . . . . . . . . .	Number	 00000012h   
+VK_MULTIPLY  . . . . . . . . . .	Number	 0000006Ah   
+VK_NEXT  . . . . . . . . . . . .	Number	 00000022h   
+VK_NUMLOCK . . . . . . . . . . .	Number	 00000090h   
+VK_NUMPAD0 . . . . . . . . . . .	Number	 00000060h   
+VK_NUMPAD1 . . . . . . . . . . .	Number	 00000061h   
+VK_NUMPAD2 . . . . . . . . . . .	Number	 00000062h   
+VK_NUMPAD3 . . . . . . . . . . .	Number	 00000063h   
+VK_NUMPAD4 . . . . . . . . . . .	Number	 00000064h   
+VK_NUMPAD5 . . . . . . . . . . .	Number	 00000065h   
+VK_NUMPAD6 . . . . . . . . . . .	Number	 00000066h   
+VK_NUMPAD7 . . . . . . . . . . .	Number	 00000067h   
+VK_NUMPAD8 . . . . . . . . . . .	Number	 00000068h   
+VK_NUMPAD9 . . . . . . . . . . .	Number	 00000069h   
+VK_PAUSE . . . . . . . . . . . .	Number	 00000013h   
+VK_PRINT . . . . . . . . . . . .	Number	 0000002Ah   
+VK_PRIOR . . . . . . . . . . . .	Number	 00000021h   
+VK_RBUTTON . . . . . . . . . . .	Number	 00000002h   
+VK_RCONTROL  . . . . . . . . . .	Number	 000000A3h   
+VK_RETURN  . . . . . . . . . . .	Number	 0000000Dh   
+VK_RIGHT . . . . . . . . . . . .	Number	 00000027h   
+VK_RMENU . . . . . . . . . . . .	Number	 000000A5h   
+VK_RSHIFT  . . . . . . . . . . .	Number	 000000A1h   
+VK_SCROLL  . . . . . . . . . . .	Number	 00000091h   
+VK_SEPARATER . . . . . . . . . .	Number	 0000006Ch   
+VK_SHIFT . . . . . . . . . . . .	Number	 00000010h   
+VK_SNAPSHOT  . . . . . . . . . .	Number	 0000002Ch   
+VK_SPACE . . . . . . . . . . . .	Number	 00000020h   
+VK_SUBTRACT  . . . . . . . . . .	Number	 0000006Dh   
+VK_TAB . . . . . . . . . . . . .	Number	 00000009h   
+VK_UP  . . . . . . . . . . . . .	Number	 00000026h   
+WINDOW_BUFFER_SIZE_EVENT . . . .	Number	 00000004h   
+WriteConsoleOutputCharacter  . .	Text   	 WriteConsoleOutputCharacterA
+WriteConsole . . . . . . . . . .	Text   	 WriteConsoleA
+again  . . . . . . . . . . . . .	Byte	 00000257 _DATA	
+black  . . . . . . . . . . . . .	Number	 00000000h   
+blue . . . . . . . . . . . . . .	Number	 00000001h   
+brown  . . . . . . . . . . . . .	Number	 00000006h   
+choice . . . . . . . . . . . . .	Byte	 0000020D _DATA	
+currentX . . . . . . . . . . . .	Byte	 0000021C _DATA	
+currentY . . . . . . . . . . . .	Byte	 0000021D _DATA	
+cyan . . . . . . . . . . . . . .	Number	 00000003h   
+excellent  . . . . . . . . . . .	Byte	 0000029E _DATA	
+exit . . . . . . . . . . . . . .	Text   	 INVOKE ExitProcess,0
+foodChar0  . . . . . . . . . . .	Byte	 0000021E _DATA	
+foodChar1  . . . . . . . . . . .	Byte	 0000021F _DATA	
+foodChar2  . . . . . . . . . . .	Byte	 00000220 _DATA	
+foodChar3  . . . . . . . . . . .	Byte	 00000221 _DATA	
+foodChar4  . . . . . . . . . . .	Byte	 00000222 _DATA	
+foodPoint  . . . . . . . . . . .	AXIS	 00000008 _DATA	
+foodnum  . . . . . . . . . . . .	Byte	 00000223 _DATA	
+foodrandomnum  . . . . . . . . .	DWord	 00000224 _DATA	
+good . . . . . . . . . . . . . .	Byte	 00000277 _DATA	
+gray . . . . . . . . . . . . . .	Number	 00000008h   
+green  . . . . . . . . . . . . .	Number	 00000002h   
+headIndex  . . . . . . . . . . .	Byte	 00000228 _DATA	
+lightBlue  . . . . . . . . . . .	Number	 00000009h   
+lightCyan  . . . . . . . . . . .	Number	 0000000Bh   
+lightGray  . . . . . . . . . . .	Number	 00000007h   
+lightGreen . . . . . . . . . . .	Number	 0000000Ah   
+lightMagenta . . . . . . . . . .	Number	 0000000Dh   
+lightRed . . . . . . . . . . . .	Number	 0000000Ch   
+magenta  . . . . . . . . . . . .	Number	 00000005h   
+maxSize  . . . . . . . . . . . .	Number	 000000FFh   
+maxX . . . . . . . . . . . . . .	Number	 00000073h   
+maxY . . . . . . . . . . . . . .	Number	 0000001Ch   
+playerName . . . . . . . . . . .	Byte	 0000020E _DATA	
+ranbon . . . . . . . . . . . . .	DWord	 00000004 _DATA	
+red  . . . . . . . . . . . . . .	Number	 00000004h   
+score  . . . . . . . . . . . . .	DWord	 00000000 _DATA	
+snake  . . . . . . . . . . . . .	Byte	 0000020C _DATA	
+speed  . . . . . . . . . . . . .	DWord	 00000208 _DATA	
+tailIndex  . . . . . . . . . . .	Byte	 00000229 _DATA	
+wallHor  . . . . . . . . . . . .	Text   	 "--------------------------------------------------------------------------------------------------------------------"
+wallVert . . . . . . . . . . . .	Number	 0000007Ch   
+white  . . . . . . . . . . . . .	Number	 0000000Fh   
+wrong  . . . . . . . . . . . . .	Byte	 0000022E _DATA	
+wsprintf . . . . . . . . . . . .	Text   	 wsprintfA
+yellow . . . . . . . . . . . . .	Number	 0000000Eh   
+
+	   1 Warnings
+	   0 Errors

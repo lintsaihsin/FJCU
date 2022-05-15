@@ -1,0 +1,49 @@
+#include <iostream>
+#include <algorithm>
+#include <map>
+
+using namespace std;
+
+int main() {
+    int n;
+
+    while(cin >> n && n) {
+        map<string, int> m;
+
+        for(int i = 0; i < n; i++) {
+
+
+            // 1. 儲存5個數字，然後排序
+            int a[5];
+            for(int j = 0; j < 5; j++) cin >> a[j];
+
+            sort(a, a + 5);
+
+
+            // 2. 把排序完成的數字傳成字串當成 index
+            string s[5];
+            for(int j = 0; j < 5; j++) s[j] = to_string(a[j]);  
+
+            string index = s[0] + s[1] + s[2] + s[3] + s[4];
+
+
+            // 3. 用 index 尋找這種選課有沒有人使用了
+            if(m.find(index) != m.end()) m[index]++;    // 有的話就+1
+            else m[index] = 1;              // 沒的話就新創一個
+        }
+
+        // 4. 尋找最多人選課的組合有多少人
+        int maximum = 0;
+        for(auto i : m) maximum = max(i.second, maximum);
+
+
+                // 5. 計算最多人的組合總共有多少人
+        int sum = 0;
+        for(auto i : m) 
+            if(i.second == maximum) sum += maximum;
+
+        cout << sum << endl;
+    }
+
+    return 0;
+}

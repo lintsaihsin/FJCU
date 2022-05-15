@@ -1,0 +1,43 @@
+#include <iostream>
+#include <map>
+using namespace std;
+
+int main ()
+{
+    map<char,int> mymap;
+
+    mymap['b'] = 100;
+    mymap['a'] = 200;
+    mymap['c'] = 300;
+    mymap['a'] = 300;//可覆蓋
+    for (map<char,int>::iterator it = mymap.begin(); it != mymap.end(); ++it)
+    {
+     cout << it->first << " => " << it->second << endl;
+    }
+    cout << endl;
+
+    mymap.insert ( pair<char,int>('a',100) );//無法覆蓋
+    mymap.insert ( pair<char,int>('d',200) );
+    for (auto it = mymap.begin(); it != mymap.end(); ++it)
+    {
+        cout << it->first << " => " << it->second << endl;
+    }
+    cout << endl;
+
+    cout << mymap.size() << " elements in mymap:" << endl;
+    cout << "a => " << mymap.find('a')->second << endl;
+    cout << "b => " << mymap.find('b')->second << endl;  
+    cout << "c => " << mymap.find('c')->second << endl;
+    cout << "d => " << mymap.find('d')->second << endl;
+    cout << endl;
+
+    mymap.clear();
+    mymap['b'] = 10;
+    mymap['a'] = 20;
+    while( !mymap.empty())
+    {
+            cout << mymap.begin()->first << " => " << mymap.begin()->second << endl;
+            mymap.erase(mymap.begin());
+    }
+    return 0;
+}

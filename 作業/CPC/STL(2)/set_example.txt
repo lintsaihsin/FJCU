@@ -1,0 +1,23 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+int main(int argc, char const *argv[])
+{
+
+    set <string> st;
+    string a;
+    st.clear();
+    while(cin >> a)
+    {
+        if(st.count(a)){
+            puts("Appeared");
+            continue;
+        }
+        st.insert(a);
+    }
+    for (auto i = st.begin(); i != st.end(); i++)
+    {
+        cout << *i << endl;
+    }
+    return 0;
+}

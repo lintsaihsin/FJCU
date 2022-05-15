@@ -1,0 +1,36 @@
+#include<bits/stdc++.h>
+using namespace std;
+int main(){
+
+ map<string , int> mp;
+ unordered_map<string, int> ump;
+
+ mp["Mimmy"] = 87;
+ mp["Jay"] = 46;
+ mp["Hank"] = 20;
+
+ ump["Mimmy"] = 87;
+ ump["Jay"] = 46;
+ ump["Hank"] = 20;
+
+ for(auto i : mp){
+  cout<< i.first<< " "<< i.second<<endl;
+ }
+ cout<<endl;
+
+ for(pair<string, int> i : mp){
+  cout<< i.first<< " "<< i.second<<endl;
+ }
+ cout<<endl;
+
+ for(auto i = ump.begin(); i != ump.end(); i++){
+  cout<< i->first<< " "<< i->second<<endl;
+ }
+ cout<<endl;
+
+ for(unordered_map<string, int>::iterator i = ump.begin(); i != ump.end(); i++){
+  cout<< i->first<< " "<< i->second<<endl;
+ }
+
+ return 0;
+}
