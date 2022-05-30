@@ -33,7 +33,12 @@ try:
 except EOFError:
     pass
 n = len(x)
-    
+
+for i in range(n):
+    print(x[i])
+for i in range(n):
+    print(y[i])
+
 sigx.append(n) # n : 實驗個數
 for i in range(1, n*2+1):
     sigx.append(sig1(i)) # sigma(Xi^t)
@@ -112,21 +117,24 @@ for i in range(1, n):
     # plt.legend([p1, p2, p3, p4], ['+1(Training)', '- 1(Training)', '+1(Testing)', '- 1(Testing)'], loc = 'lower right')
     plt.grid() #格線
     if i < 10:
-        plt.savefig(f'./Result_2/Case_0{i}.png')
+        plt.savefig(f'./Result_3/Case_0{i}.png')
     else :
-        plt.savefig(f'./Result_2/Case_{i}.png')
+        plt.savefig(f'./Result_3/Case_{i}.png')
     plt.clf()
 #=============================================================================================    
 find_min = np.array([ 0. for _ in range(n-2) ])
 print("mse size : ", len(mse))
-print("mse : ", mse)
+print("mse")
+for i in range(len(mse)):
+    print(mse[i])
+    
 bc = [] # best choice
-
+print("find min")
 for i in range(n-2):
     if mse[i] / mse[i+1] < 2:
         bc.append(i+1)
     find_min[i] = mse[i] / mse[i+1] #sig(k) / sig(k+1)
-    print(i, " ", find_min[i])
+    print(find_min[i])
 
 print(find_min)
 print("Case 1 :", np.argmin(find_min)+1)
@@ -198,7 +206,7 @@ def add_slide(prs, pic_list, result_path, file, path , number):
 prs = Presentation()
 prs.slide_width = util.Cm(25.4)
 prs.slide_height = util.Cm(14.29)
-result_path = "./Result_2/"
+result_path = "./Result_3/"
 # 讀取圖片列表
 pic_list = []
 tmp = 0
@@ -223,4 +231,4 @@ print("="*50)
 
 
 # 儲存為檔案
-prs.save("Result_2.pptx")
+prs.save("Result_3.pptx")

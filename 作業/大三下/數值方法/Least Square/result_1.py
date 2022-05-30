@@ -14,16 +14,16 @@ sigxy = []
 mse = []
 
 def sig1(t): # sigma(Xi 的 t次方)
-    sum = 0
+    summ = 0
     for i in range(n):
-        sum += x[i]**t
-    return sum
+        summ += x[i]**t
+    return summ
 
 def sig2(t): # sigma(Yi * (Xi 的 t次方))
-    sum = 0
+    summ = 0
     for i in range(n):
-        sum += y[i] * x[i]**t
-    return sum
+        summ += y[i] * x[i]**t
+    return summ
 
 try:
     while(1):

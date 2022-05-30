@@ -14,4 +14,10 @@ Result 2 -> 自訂結果的圖
 result_2.py -> 自訂的程式
 Result_2.pptx -> 自訂的結論
 ========================
+in3.in -> 自訂測資 (愛心)
+out3.out -> 自訂結果
+Result 3 -> 自訂結果的圖
+result_3.py -> 自訂的程式
+Result_3.pptx -> 自訂的結論
+========================
 Least_Square.pptx -> 統整好的結論
